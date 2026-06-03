@@ -1,3 +1,4 @@
+import Link from "next/link";
 import PageWrapper from "@/components/layout/PageWrapper";
 import KPICard from "@/components/dashboard/KPICard";
 import RiskAlerts from "@/components/dashboard/RiskAlerts";
@@ -15,16 +16,38 @@ import { getOpenReqs } from "@/data/headcount";
 import { getTotalCloudYTD, getTotalCloudBudgetYTD } from "@/data/cloudSpend";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
-// ─── Section header component ─────────────────────────────────────────────────
+// ─── Section header with optional right-side agent CTA ────────────────────────
 
-function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+function SectionHeader({
+  label, sub, agentId, agentAvatar, agentLabel, agentPrompt,
+}: {
+  label:        string;
+  sub?:         string;
+  agentId?:     string;
+  agentAvatar?: string;
+  agentLabel?:  string;
+  agentPrompt?: string;
+}) {
   return (
-    <div className="section-heading">
-      <span className="section-heading-bar" />
-      <span className="section-heading-text">
-        {label}
-        {sub && <span className="section-heading-sub">{sub}</span>}
-      </span>
+    <div className="flex items-center justify-between gap-4 mb-4">
+      <div className="section-heading !mb-0">
+        <span className="section-heading-bar" />
+        <span className="section-heading-text">
+          {label}
+          {sub && <span className="section-heading-sub">{sub}</span>}
+        </span>
+      </div>
+
+      {agentId && agentLabel && agentPrompt && (
+        <Link
+          href={`/agents/${agentId}?q=${encodeURIComponent(agentPrompt)}`}
+          className="shrink-0 flex items-center gap-1.5 text-[11px] font-semibold text-nexora-600 hover:text-nexora-700 transition-colors group"
+        >
+          {agentAvatar && <span className="text-base leading-none">{agentAvatar}</span>}
+          <span className="hidden sm:inline">{agentLabel}</span>
+          <span className="group-hover:translate-x-0.5 transition-transform inline-block text-nexora-400">↗</span>
+        </Link>
+      )}
     </div>
   );
 }
@@ -38,19 +61,21 @@ export default function DashboardPage() {
   const monthly = getMonthlyTotals();
   const byBU    = getByBusinessUnit();
 
-  // ── Top 3 variance drivers — computed from real data ──────────────────────
-  const sortedBUs          = [...byBU].sort((a, b) => b.variance - a.variance);
-  const overBudgetBUs      = sortedBUs.filter(b => b.variance > 0);
-  const overContractors    = getOverBudgetContractors();
-  const contractorExcess   = overContractors.reduce((s, c) => s + (c.ytdSpend - c.budget), 0);
-  const cloudActual        = getTotalCloudYTD();
-  const cloudBudget        = getTotalCloudBudgetYTD();
-  const cloudVar           = cloudActual - cloudBudget;
-  const openReqs           = getOpenReqs().filter(h => h.status === "Open");
+  // Risk counts for section label
+  const critCount = risks.filter(r => r.severity === "critical").length;
+  const warnCount = risks.filter(r => r.severity === "warning").length;
+  const infoCount = risks.filter(r => r.severity === "info").length;
 
-  // ── Build 3 drivers ───────────────────────────────────────────────────────
-  const topBU = overBudgetBUs[0];
-  const topBUBudget = topBU?.budget ?? 1;
+  // Variance driver data
+  const sortedBUs       = [...byBU].sort((a, b) => b.variance - a.variance);
+  const overBudgetBUs   = sortedBUs.filter(b => b.variance > 0);
+  const overConts       = getOverBudgetContractors();
+  const contExcess      = overConts.reduce((s, c) => s + (c.ytdSpend - c.budget), 0);
+  const cloudActual     = getTotalCloudYTD();
+  const cloudBudget     = getTotalCloudBudgetYTD();
+  const cloudVar        = cloudActual - cloudBudget;
+  const openReqs        = getOpenReqs().filter(h => h.status === "Open");
+  const topBU           = overBudgetBUs[0];
 
   const drivers: VarianceDriver[] = [
     {
@@ -59,8 +84,8 @@ export default function DashboardPage() {
       title:       "Cloud Infrastructure Over Budget",
       variance:    cloudVar,
       budget:      cloudBudget,
-      context:     `AWS EC2 (production scaling) and GCP Vertex AI (new AI/ML workloads) are the primary cost drivers. Monthly cloud spend has increased every month from January through May 2026. Full-year overrun is tracking at ${formatCurrency(Math.round(cloudVar / 5 * 12), true)} if current run rate continues.`,
-      action:      "Engage FinOps team immediately for EC2 right-sizing analysis and GCP committed-use discount review. Target: $180K annualized savings by Q3.",
+      context:     `AWS EC2 (production scaling) and GCP Vertex AI (AI/ML workloads) are driving acceleration. Monthly cloud spend has increased each month Jan–May. Full-year overrun projected at ${formatCurrency(Math.round(cloudVar / 5 * 12), true)} at current run rate.`,
+      action:      "Engage FinOps for EC2 right-sizing and GCP committed-use discount review. Target: $180K annualized savings by Q3.",
       actionOwner: "Cloud Engineering + FinOps",
       actionDue:   "Jul 15, 2026",
       status:      cloudVar > cloudBudget * 0.05 ? "unfavorable" : "watch",
@@ -69,12 +94,12 @@ export default function DashboardPage() {
       rank:        2,
       category:    topBU ? topBU.bu : "FP&A",
       title:       topBU ? `${topBU.bu} Spend Over Plan` : "Multi-BU Overage",
-      variance:    topBU?.variance ?? (byBU.reduce((s, b) => s + b.variance, 0)),
-      budget:      topBUBudget,
+      variance:    topBU?.variance ?? 0,
+      budget:      topBU?.budget   ?? 1,
       context:     topBU
-        ? `${topBU.bu} is the largest over-budget business unit at ${formatCurrency(topBU.variance, true)} YTD (${formatPercent(topBU.variance / topBU.budget)} vs. plan). ${overBudgetBUs.length > 1 ? `${overBudgetBUs.length - 1} additional BU${overBudgetBUs.length > 2 ? "s" : ""} are also tracking over budget.` : "Review with cost center owners to identify controllable vs. strategic spend."}`
-        : "Multiple business units are tracking above their approved budgets.",
-      action:      "Schedule budget review with top over-budget BU owners before Q2 close. Identify controllable vs. strategic spend and submit forecast revision.",
+        ? `${topBU.bu} is the largest over-budget BU at ${formatCurrency(topBU.variance, true)} YTD (${formatPercent(topBU.variance / topBU.budget)} vs. plan). ${overBudgetBUs.length > 1 ? `${overBudgetBUs.length - 1} other BU${overBudgetBUs.length > 2 ? "s" : ""} also tracking over budget.` : ""}`
+        : "Multiple BUs tracking over approved budget.",
+      action:      "Schedule budget review with over-budget BU owners before Q2 close. Submit forecast revision.",
       actionOwner: "FP&A",
       actionDue:   "Jun 30, 2026",
       status:      topBU && topBU.variance / topBU.budget > 0.05 ? "unfavorable" : "watch",
@@ -82,27 +107,27 @@ export default function DashboardPage() {
     {
       rank:        3,
       category:    "External Labor",
-      title:       overContractors.length > 0 ? `${overContractors.length} Contractor SOWs Over Approved Budget` : "Open Headcount Creating Contractor Dependency",
-      variance:    overContractors.length > 0 ? contractorExcess : openReqs.reduce((s, h) => s + h.annualSalary / 12 * 3, 0),
-      budget:      overContractors.length > 0 ? overContractors.reduce((s, c) => s + c.budget, 0) : 1,
-      context:     overContractors.length > 0
-        ? `${overContractors.map(c => c.name).join(", ")} ${overContractors.length === 1 ? "is" : "are"} tracking over approved SOW budgets by a combined ${formatCurrency(contractorExcess, true)}. SOW scope creep or rate changes require procurement review and formal amendment.`
-        : `${openReqs.length} open positions in Security and Cloud Engineering are forcing reliance on higher-cost contractors, creating an estimated cost premium of ${formatCurrency(openReqs.reduce((s, h) => s + h.annualSalary * 0.3, 0), true)}/yr vs. FTE.`,
-      action:      overContractors.length > 0
-        ? "Issue PO amendments or obtain signed SOW amendments for all over-budget engagements. Escalate to procurement before June 30 month-end close."
-        : "Accelerate TA pipeline for open security and cloud engineering roles to reduce dependency on premium-rate contractors.",
-      actionOwner: overContractors.length > 0 ? "IT Finance / Procurement" : "HR + IT Finance",
+      title:       overConts.length > 0
+        ? `${overConts.length} Contractor SOWs Over Budget`
+        : "Open HC Creating Contractor Dependency",
+      variance:    overConts.length > 0 ? contExcess : openReqs.reduce((s, h) => s + h.annualSalary / 12 * 3, 0),
+      budget:      overConts.length > 0 ? overConts.reduce((s, c) => s + c.budget, 0) : 1,
+      context:     overConts.length > 0
+        ? `${overConts.map(c => c.name).join(", ")} are over approved SOW budgets by a combined ${formatCurrency(contExcess, true)}. Scope creep or rate changes require procurement review.`
+        : `${openReqs.length} open positions forcing reliance on premium-rate contractors.`,
+      action:      overConts.length > 0
+        ? "Obtain signed SOW amendments for all over-budget engagements before June 30."
+        : "Accelerate TA pipeline for open security and cloud roles.",
+      actionOwner: overConts.length > 0 ? "IT Finance / Procurement" : "HR + IT Finance",
       actionDue:   "Jun 30, 2026",
-      status:      (overContractors.length > 0 && contractorExcess > 0) ? "watch" : "watch",
+      status:      "watch",
     },
   ];
 
-  // ── Chart data ────────────────────────────────────────────────────────────
+  // Chart + table data
   const chartData = monthly.map(m => ({
     month: m.month, actual: m.actual, budget: m.budget, forecast: m.forecast,
   }));
-
-  // ── Variance table rows ───────────────────────────────────────────────────
   const buRows = byBU.map(b => ({
     label:       b.bu,
     actual:      b.actual,
@@ -113,16 +138,11 @@ export default function DashboardPage() {
     highlight:   b.variance > 100_000,
   }));
 
-  // ── Executive summary metrics ─────────────────────────────────────────────
+  // Executive summary numbers
   const ytdActual = byBU.reduce((s, b) => s + b.actual, 0);
   const ytdBudget = byBU.reduce((s, b) => s + b.budget, 0);
   const ytdVar    = ytdActual - ytdBudget;
   const ytdVarPct = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
-  const critCount = risks.filter(r => r.severity === "critical").length;
-
-  // ── High-priority actions only ────────────────────────────────────────────
-  const highActions = actions.filter(a => a.priority === "High");
-  const allActions  = actions;
 
   return (
     <PageWrapper
@@ -131,11 +151,15 @@ export default function DashboardPage() {
       badge="Live"
     >
 
-      {/* ── Section 1: Key Metrics ────────────────────────────────────────── */}
+      {/* ── Section 1: Key Performance Indicators ────────────────────────── */}
       <section className="mb-8">
         <SectionHeader
           label="Key Performance Indicators"
-          sub="6 metrics answering what, vs. budget, favorable/unfavorable, why, and what action is needed"
+          sub="YTD May 2026 — click any card's Insight toggle for root cause"
+          agentId="fpa"
+          agentAvatar="📊"
+          agentLabel="Ask FP&A Agent"
+          agentPrompt="What are the main drivers of our YTD budget variance?"
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {kpis.map((kpi, i) => <KPICard key={i} kpi={kpi} />)}
@@ -146,31 +170,49 @@ export default function DashboardPage() {
       <section className="mb-8">
         <SectionHeader
           label="Top Variance Drivers"
-          sub="Root causes of budget variance with recommended actions"
+          sub="Root causes with recommended actions"
+          agentId="cfo"
+          agentAvatar="🏦"
+          agentLabel="Ask CFO Agent"
+          agentPrompt="What are the top financial risks I need to act on this month?"
         />
         <VarianceDrivers drivers={drivers} period="YTD May 2026" />
       </section>
 
       {/* ── Section 3: Executive Summary ─────────────────────────────────── */}
       <section className="mb-8">
-        <SectionHeader label="Executive Summary" sub="CFO Agent · AI-generated narrative" />
+        <SectionHeader
+          label="Executive Summary"
+          sub="CFO Agent · AI-generated narrative"
+          agentId="cfo"
+          agentAvatar="🏦"
+          agentLabel="Open CFO Agent"
+          agentPrompt="Give me the executive financial summary for May 2026"
+        />
         <ExecutiveSummaryBox
           agentName="CFO Agent"
           agentAvatar="🏦"
-          summary={`IT organization is tracking ${formatPercent(ytdVarPct)} unfavorable versus the approved annual plan through May 2026. The primary drivers are cloud infrastructure acceleration tied to the Nexora AI platform roadmap and scope expansion in external labor engagements. Three vendor contracts require immediate procurement attention before Q2 close, and the full-year forecast has been revised to reflect an unfavorable variance versus plan.`}
+          summary={`IT organization is tracking ${formatPercent(ytdVarPct)} unfavorable versus the approved annual plan through May 2026. Primary drivers are cloud infrastructure acceleration tied to the Nexora AI platform roadmap and scope expansion in external labor. Three vendor contracts require immediate procurement attention before Q2 close.`}
           keyPoints={[
             `YTD: ${formatCurrency(ytdActual, true)} actual vs. ${formatCurrency(ytdBudget, true)} budget — ${formatCurrency(ytdVar, true)} (${formatPercent(ytdVarPct)}) unfavorable`,
-            "Cloud Engineering and Data & Analytics are primary overage drivers — AI/ML infrastructure scaling in AWS and GCP",
-            `${overContractors.length} of 12 active contractors over approved SOW budget — ${formatCurrency(contractorExcess, true)} total excess requires amendment`,
-            `${critCount} critical risk${critCount !== 1 ? "s" : ""} flagged — AWS contract expiry (June 30) is highest priority item`,
-            "FinOps program projected to recover $350K in cloud savings in H2 — monitoring required",
+            "Cloud Engineering and Data & Analytics are primary overage drivers",
+            `${overConts.length} of 12 active contractors over approved SOW budget — ${formatCurrency(contExcess, true)} total excess`,
+            `${critCount} critical risk${critCount !== 1 ? "s" : ""} flagged — AWS contract expiry (June 30) is highest priority`,
+            "FinOps program projected to recover $350K in cloud savings in H2",
           ]}
         />
       </section>
 
-      {/* ── Section 4: Financial Performance ─────────────────────────────── */}
+      {/* ── Section 4: Monthly Chart + Risk Alerts ───────────────────────── */}
       <section className="mb-8">
-        <SectionHeader label="Financial Performance" sub="Monthly spend trend and active risk flags" />
+        <SectionHeader
+          label="Financial Performance"
+          sub={`Monthly spend trend · ${critCount > 0 ? `🔴 ${critCount} critical` : ""}${warnCount > 0 ? `  🟡 ${warnCount} watch` : ""}${infoCount > 0 ? `  🔵 ${infoCount} info` : ""}`.trim()}
+          agentId="cio"
+          agentAvatar="💡"
+          agentLabel="Ask CIO Agent"
+          agentPrompt="Prepare a 5-point IT financial briefing for the executive team"
+        />
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-3 card overflow-hidden">
             <div className="card-header flex items-center justify-between">
@@ -196,10 +238,17 @@ export default function DashboardPage() {
 
       {/* ── Section 5: Variance Analysis ─────────────────────────────────── */}
       <section className="mb-8">
-        <SectionHeader label="Variance Analysis" sub="YTD budget vs. actuals by business unit · rows >$100K flagged" />
+        <SectionHeader
+          label="Variance Analysis"
+          sub="YTD budget vs. actuals by business unit"
+          agentId="fpa"
+          agentAvatar="📊"
+          agentLabel="Ask FP&A Agent"
+          agentPrompt="Walk me through the variance by business unit for May 2026"
+        />
         <VarianceTable
           title="YTD Budget vs. Actuals by Business Unit"
-          subtitle="Jan–May 2026 · Favorable variance shown in green, unfavorable in red"
+          subtitle="Jan–May 2026 · Rows flagged in red exceed $100K unfavorable"
           rows={buRows}
           showForecast
         />
@@ -207,8 +256,15 @@ export default function DashboardPage() {
 
       {/* ── Section 6: Recommended Actions ───────────────────────────────── */}
       <section>
-        <SectionHeader label="Recommended Actions" sub={`${highActions.length} high-priority items requiring action before Q2 close`} />
-        <RecommendedActions actions={allActions} />
+        <SectionHeader
+          label="Recommended Actions"
+          sub={`${actions.filter(a => a.priority === "High").length} high priority · ${actions.filter(a => a.priority === "Medium").length} medium`}
+          agentId="cfo"
+          agentAvatar="🏦"
+          agentLabel="Ask CFO Agent"
+          agentPrompt="What actions should the finance team take before Q2 close?"
+        />
+        <RecommendedActions actions={actions} />
       </section>
 
     </PageWrapper>
