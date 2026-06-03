@@ -143,15 +143,26 @@ export default function AgentChatPanel({
   const [loading, setLoading]       = useState(false);
   const [streamText, setStreamText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef  = useRef<HTMLInputElement>(null);
-  const initFired = useRef(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const initFired     = useRef(false);
 
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  // Direct scrollTop — never triggers scrolling in parent page containers.
+  // Instant during streaming to avoid queued-animation stall.
+  const snapToBottom = useCallback(() => {
+    const el = scrollAreaRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, loading, streamText, scrollToBottom]);
+  const smoothScrollToBottom = useCallback(() => {
+    const el = scrollAreaRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  // Smooth scroll only when a full message is committed
+  useEffect(() => { smoothScrollToBottom(); }, [messages, smoothScrollToBottom]);
+  // Instant snap when loading indicator appears
+  useEffect(() => { if (loading) snapToBottom(); }, [loading, snapToBottom]);
 
   useEffect(() => {
     if (initialQuestion && !initFired.current) {
@@ -184,9 +195,7 @@ export default function AgentChatPanel({
         2;
 
       await new Promise(r => setTimeout(r, delay));
-
-      // Allow interruption
-      if (i % 50 === 0) scrollToBottom();
+      if (i % 80 === 0) snapToBottom();
     }
 
     setIsStreaming(false);
@@ -270,7 +279,7 @@ export default function AgentChatPanel({
       </div>
 
       {/* ── Messages ───────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div ref={scrollAreaRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
 
         {/* Empty state */}
         {messages.length === 0 && !loading && (
@@ -309,14 +318,14 @@ export default function AgentChatPanel({
             )}
 
             <div className={clsx(
-              "max-w-[90%] rounded-2xl",
+              "max-w-[90%] rounded-2xl overflow-hidden",
               msg.role === "user"
                 ? "bg-nexora-600 text-white rounded-tr-sm px-4 py-3"
-                : "bg-white border border-slate-200 rounded-tl-sm shadow-sm overflow-hidden"
+                : "bg-white border border-slate-200 rounded-tl-sm shadow-sm"
             )}>
               {msg.role === "user" ? (
                 <>
-                  <p className="text-[13px] leading-relaxed">{msg.content}</p>
+                  <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
                   <p className="text-[9px] text-nexora-300 mt-1.5 text-right font-medium">
                     {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </p>
@@ -324,8 +333,8 @@ export default function AgentChatPanel({
               ) : (
                 <>
                   {/* Response body */}
-                  <div className="px-4 pt-3 pb-2">
-                    <div className="text-[11px] text-slate-700 leading-relaxed">
+                  <div className="px-4 pt-3 pb-2 overflow-hidden">
+                    <div className="text-[11px] text-slate-700 leading-relaxed break-words">
                       {renderMarkdown(msg.content)}
                     </div>
                   </div>
@@ -407,8 +416,8 @@ export default function AgentChatPanel({
             <div className="w-7 h-7 rounded-lg bg-nexora-100 flex items-center justify-center text-sm shrink-0 mt-0.5">
               {agent.avatar}
             </div>
-            <div className="max-w-[90%] bg-white border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm px-4 py-3">
-              <div className="text-[11px] text-slate-700 leading-relaxed">
+            <div className="max-w-[90%] bg-white border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm px-4 py-3 overflow-hidden">
+              <div className="text-[11px] text-slate-700 leading-relaxed break-words">
                 {renderMarkdown(streamText)}
               </div>
               <span className="inline-block w-0.5 h-3 bg-nexora-500 animate-pulse ml-0.5 align-middle" />
@@ -416,7 +425,6 @@ export default function AgentChatPanel({
           </div>
         )}
 
-        <div ref={bottomRef} />
       </div>
 
       {/* ── Suggested follow-ups (after first message) ──────────────────── */}

@@ -157,8 +157,8 @@ function SuggestionChip({
 function UserBubble({ msg }: { msg: ChatMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[75%] bg-nexora-600 text-white rounded-2xl rounded-tr-sm px-4 py-3">
-        <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+      <div className="max-w-[75%] bg-nexora-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 overflow-hidden">
+        <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
         <p className="text-[9px] text-nexora-300 mt-1.5 text-right font-medium">
           {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </p>
@@ -187,8 +187,8 @@ function AgentBubble({ msg, avatar, streaming = false, streamText = "" }: {
 
       <div className="flex-1 min-w-0 bg-white border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
         {/* Main response body */}
-        <div className="px-4 pt-4 pb-3">
-          <div className="text-[12px] text-slate-700 leading-relaxed">
+        <div className="px-4 pt-4 pb-3 overflow-hidden">
+          <div className="text-[12px] text-slate-700 leading-relaxed break-words">
             {renderMarkdown(content)}
             {streaming && (
               <span className="inline-block w-0.5 h-3.5 bg-nexora-500 animate-pulse ml-0.5 align-middle" />
@@ -268,15 +268,26 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
   const [isStreaming, setIsStreaming] = useState(false);
   const [showContext, setShowContext] = useState(true);
 
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const initFired   = useRef(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const textareaRef   = useRef<HTMLTextAreaElement>(null);
+  const initFired     = useRef(false);
 
-  const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  // Direct scrollTop manipulation — never touches the page scroll container.
+  // "instant" for streaming/loading; "smooth" only when a full message lands.
+  const snapToBottom = useCallback(() => {
+    const el = scrollAreaRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, loading, streamText, scrollToBottom]);
+  const smoothScrollToBottom = useCallback(() => {
+    const el = scrollAreaRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  // Smooth scroll when a complete message arrives (messages array changes)
+  useEffect(() => { smoothScrollToBottom(); }, [messages, smoothScrollToBottom]);
+  // Snap instantly when the thinking indicator appears
+  useEffect(() => { if (loading) snapToBottom(); }, [loading, snapToBottom]);
 
   // Fire initial question from URL param (only if no existing conversation)
   useEffect(() => {
@@ -307,7 +318,8 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
       const c = chars[i];
       const delay = c === "\n" ? 6 : c === "." || c === "!" || c === "?" ? 20 : c === "," ? 10 : c === "*" ? 1 : 2;
       await new Promise(r => setTimeout(r, delay));
-      if (i % 80 === 0) scrollToBottom();
+      // Snap (not smooth) during streaming so we never queue competing animations
+      if (i % 80 === 0) snapToBottom();
     }
     setIsStreaming(false);
     setStreamText("");
@@ -423,7 +435,10 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
         </div>
 
         {/* ── Message thread ──────────────────────────────────────────────── */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">
+        <div
+          ref={scrollAreaRef}
+          className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-6 space-y-6"
+        >
 
           {/* Empty state — prompt starters */}
           {messages.length === 0 && !loading && (
@@ -508,7 +523,8 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
             </div>
           )}
 
-          <div ref={bottomRef} className="h-4" />
+          {/* Spacer so the last message never sits flush against the input bar */}
+          <div className="h-4 shrink-0" />
         </div>
 
         {/* Follow-up chips (mid-conversation) */}
