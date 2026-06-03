@@ -1,5 +1,5 @@
 import PageWrapper from "@/components/layout/PageWrapper";
-import AgentChatPanel from "@/components/agents/AgentChatPanel";
+import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import BudgetVsActualChart from "@/components/charts/BudgetVsActualChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
@@ -107,7 +107,15 @@ export default function FPAPage() {
               <BudgetVsActualChart data={chartData} height={300} />
             </div>
           </div>
-          <AgentChatPanel agentId="fpa" initialQuestion="What are the main drivers of our YTD budget variance?" />
+          <AgentWorkspaceCTA
+            agentId="fpa"
+            contextNote="Ask the FP&A Agent to explain variance drivers, walk through forecast changes, or drill into any cost center."
+            prompts={[
+              "What are the main drivers of our YTD budget variance?",
+              "How is our full-year forecast tracking vs. the approved plan?",
+              "Walk me through the month-over-month spend trend",
+            ]}
+          />
         </div>
       </section>
 

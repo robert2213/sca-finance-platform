@@ -1,5 +1,5 @@
 import PageWrapper from "@/components/layout/PageWrapper";
-import AgentChatPanel from "@/components/agents/AgentChatPanel";
+import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import KPICard from "@/components/dashboard/KPICard";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
@@ -179,7 +179,15 @@ export default function ExternalLaborPage() {
           </div>
         </div>
 
-        <AgentChatPanel agentId="external-labor" initialQuestion="Which contractors are over their approved SOW budget?" />
+        <AgentWorkspaceCTA
+            agentId="external-labor"
+            contextNote="Ask the External Labor Agent to review over-budget SOWs, assess burn rate, or plan contractor transitions."
+            prompts={[
+              "Which contractors are over their approved SOW budget?",
+              "What is our total contractor spend vs. budget by business unit?",
+              "Which engagements are ending this quarter?",
+            ]}
+          />
         </div>
       </section>
 

@@ -1,5 +1,5 @@
 import PageWrapper from "@/components/layout/PageWrapper";
-import AgentChatPanel from "@/components/agents/AgentChatPanel";
+import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import KPICard from "@/components/dashboard/KPICard";
 import HeadcountChart from "@/components/charts/HeadcountChart";
 import StatsBanner from "@/components/dashboard/StatsBanner";
@@ -242,7 +242,15 @@ export default function HeadcountPage() {
             </div>
           </div>
 
-          <AgentChatPanel agentId="headcount" initialQuestion="How many open requisitions do we have and what is the financial impact?" />
+          <AgentWorkspaceCTA
+              agentId="headcount"
+              contextNote="Ask the Headcount Agent about open reqs, fill rate trends, salary savings, or contractor cost premium from HC gaps."
+              prompts={[
+                "How many open requisitions do we have and where?",
+                "What is the financial impact of our open headcount?",
+                "Which BUs have the largest workforce gaps?",
+              ]}
+            />
         </div>
       </section>
     </PageWrapper>

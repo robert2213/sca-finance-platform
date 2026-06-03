@@ -1,5 +1,5 @@
 import PageWrapper from "@/components/layout/PageWrapper";
-import AgentChatPanel from "@/components/agents/AgentChatPanel";
+import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import KPICard from "@/components/dashboard/KPICard";
 import SpendTrendChart from "@/components/charts/SpendTrendChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
@@ -127,9 +127,14 @@ export default function CIOPage() {
           </div>
         </div>
 
-        <AgentChatPanel
+        <AgentWorkspaceCTA
           agentId="cio"
-          initialQuestion="Prepare a 5-point IT financial briefing for the executive team"
+          contextNote="Ask the CIO Finance Partner to prepare executive talking points, explain cloud ROI, or draft board-ready commentary."
+          prompts={[
+            "Prepare a 5-point IT financial briefing for the executive team",
+            "Give me CIO-ready talking points on cloud spend and ROI",
+            "How do I explain the IT budget variance to the CEO?",
+          ]}
         />
         </div>
       </section>

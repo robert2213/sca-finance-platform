@@ -1,5 +1,5 @@
 import PageWrapper from "@/components/layout/PageWrapper";
-import AgentChatPanel from "@/components/agents/AgentChatPanel";
+import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import RiskAlerts from "@/components/dashboard/RiskAlerts";
 import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
@@ -166,7 +166,15 @@ export default function VendorsPage() {
           </div>
         </div>
 
-        <AgentChatPanel agentId="procurement" initialQuestion="Which contracts are expiring in the next 90 days?" />
+        <AgentWorkspaceCTA
+            agentId="procurement"
+            contextNote="Ask the Procurement Agent about contracts expiring above, renewal priorities, or vendor concentration risk."
+            prompts={[
+              "Which contracts are expiring in the next 90 days?",
+              "Where do we have vendor concentration risk?",
+              "Which vendors should we prioritize for renewal?",
+            ]}
+          />
         </div>
       </section>
 
