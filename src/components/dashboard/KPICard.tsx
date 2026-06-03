@@ -1,8 +1,49 @@
-import type { KPI } from "@/types/finance";
+import type { KPI, KPIStatus } from "@/types/finance";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/formatters";
 import clsx from "clsx";
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+// ─── Status config ─────────────────────────────────────────────────────────────
+// Green = favorable, Red = unfavorable, Amber = watch, Slate = neutral
+// Follows standard finance convention, NOT "red = any overage"
+
+const statusConfig: Record<KPIStatus, {
+  pill:  string;
+  label: string;
+  bar:   string;
+  text:  string;
+  bg:    string;
+}> = {
+  favorable: {
+    pill:  "bg-emerald-100 text-emerald-800 border border-emerald-200",
+    label: "Favorable",
+    bar:   "bg-emerald-500",
+    text:  "text-emerald-700",
+    bg:    "",
+  },
+  watch: {
+    pill:  "bg-amber-100 text-amber-800 border border-amber-200",
+    label: "Watch",
+    bar:   "bg-amber-400",
+    text:  "text-amber-700",
+    bg:    "",
+  },
+  unfavorable: {
+    pill:  "bg-red-100 text-red-800 border border-red-200",
+    label: "Unfavorable",
+    bar:   "bg-red-500",
+    text:  "text-red-700",
+    bg:    "bg-red-50/30",
+  },
+  neutral: {
+    pill:  "bg-slate-100 text-slate-600 border border-slate-200",
+    label: "On Track",
+    bar:   "bg-slate-400",
+    text:  "text-slate-500",
+    bg:    "",
+  },
+};
+
+// ─── Value formatters ──────────────────────────────────────────────────────────
 
 function fmtValue(kpi: KPI, value = kpi.value): string {
   switch (kpi.format) {
@@ -13,175 +54,140 @@ function fmtValue(kpi: KPI, value = kpi.value): string {
   }
 }
 
-// ─── Trend chip ───────────────────────────────────────────────────────────────
+// ─── Variance row ──────────────────────────────────────────────────────────────
+// Shows: "▲ +$458K / +3.2% unfav." or "▼ –$82K / –0.8% fav."
+// This is the single most important piece of information on the card.
 
-function TrendChip({ kpi }: { kpi: KPI }) {
-  const delta    = kpi.value - kpi.prior;
-  const isGood   =
-    kpi.trend === "flat"
-      ? true
-      : kpi.trend === "up"
-      ? kpi.trendPositive
-      : !kpi.trendPositive;
+function VarianceRow({ kpi, status }: { kpi: KPI; status: KPIStatus }) {
+  const hasBudget = kpi.hasBudget !== false && kpi.budget > 0;
+  if (!hasBudget) return null;
 
-  const arrow = kpi.trend === "flat" ? "→" : kpi.trend === "up" ? "↑" : "↓";
-  const label =
-    kpi.format === "percent"
-      ? `${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)}pp`
-      : kpi.format === "currency"
-      ? formatCurrency(Math.abs(delta), true)
-      : `${delta >= 0 ? "+" : ""}${Math.round(delta)}`;
+  const varianceDollar = kpi.varianceDollar ?? (kpi.value - kpi.budget);
+  const variancePct    = kpi.budget !== 0 ? varianceDollar / Math.abs(kpi.budget) : 0;
+  const isOver         = varianceDollar > 0;
+  const isZero         = Math.abs(variancePct) < 0.001;
+
+  const cfg = statusConfig[status];
+
+  if (isZero) {
+    return (
+      <div className="flex items-center justify-between text-[11px] text-slate-400">
+        <span>Budget: {fmtValue({ ...kpi, value: kpi.budget })}</span>
+        <span className="font-semibold text-slate-500">On Plan</span>
+      </div>
+    );
+  }
+
+  const arrow = isOver ? "▲" : "▼";
+
+  // For currency metrics show $+amount / +pct
+  // For percent metrics show +Xpp
+  // For number metrics show +N count
+  let varianceText: string;
+  if (kpi.format === "percent") {
+    const pp = varianceDollar * 100;
+    varianceText = `${pp > 0 ? "+" : ""}${pp.toFixed(1)}pp`;
+  } else if (kpi.format === "currency") {
+    const dollarStr = formatCurrency(Math.abs(varianceDollar), true);
+    const pctStr    = `${Math.abs(variancePct * 100).toFixed(1)}%`;
+    varianceText = `${isOver ? "+" : "–"}${dollarStr} / ${isOver ? "+" : "–"}${pctStr}`;
+  } else {
+    varianceText = `${isOver ? "+" : ""}${Math.round(varianceDollar)}`;
+  }
 
   return (
-    <div
-      className={clsx(
-        "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold shrink-0",
-        isGood ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-slate-400">
+          Budget {fmtValue({ ...kpi, value: kpi.budget })}
+        </span>
+        <div className={clsx("flex items-center gap-1 text-[11px] font-bold", cfg.text)}>
+          <span>{arrow}</span>
+          <span>{varianceText}</span>
+        </div>
+      </div>
+      {/* Utilisation bar only for currency with budget */}
+      {kpi.format === "currency" && (
+        <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className={clsx("h-full rounded-full transition-all duration-700", cfg.bar)}
+            style={{ width: `${Math.min((kpi.value / kpi.budget) * 100, 100)}%` }}
+          />
+        </div>
       )}
-      title="vs. prior period"
-    >
-      <span>{arrow}</span>
-      <span>{label}</span>
     </div>
   );
 }
 
-// ─── Mini sparkline (pure CSS bars) ──────────────────────────────────────────
-
-const sparkData: Record<string, number[]> = {
-  currency:  [72, 76, 80, 85, 88, 93, 100],
-  percent:   [50, 55, 60, 72, 68, 80, 100],
-  headcount: [90, 92, 88, 92, 95, 96, 100],
-  number:    [60, 70, 55, 75, 65, 80, 100],
-};
-
-function Sparkline({ format, isGood }: { format: KPI["format"]; isGood: boolean }) {
-  const data = sparkData[format] ?? sparkData.currency;
-  const max  = Math.max(...data);
-  return (
-    <div className="flex items-end gap-0.5 h-7">
-      {data.map((v, i) => (
-        <div
-          key={i}
-          className={clsx(
-            "flex-1 rounded-sm",
-            i === data.length - 1
-              ? isGood ? "bg-emerald-400" : "bg-red-400"
-              : "bg-slate-150"
-          )}
-          style={{
-            height: `${(v / max) * 100}%`,
-            backgroundColor: i === data.length - 1 ? undefined : `rgba(148,163,184,${0.25 + (i / data.length) * 0.45})`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ─── Main card ────────────────────────────────────────────────────────────────
+// ─── Main card ─────────────────────────────────────────────────────────────────
 
 interface KPICardProps {
   kpi: KPI;
-  showSparkline?: boolean;
 }
 
-export default function KPICard({ kpi, showSparkline = true }: KPICardProps) {
-  const variance    = kpi.value - kpi.budget;
-  const variancePct = kpi.budget !== 0 ? variance / kpi.budget : 0;
+export default function KPICard({ kpi }: KPICardProps) {
+  // Derive status: explicit field takes priority, then compute from budget comparison
+  let status: KPIStatus = kpi.status ?? "neutral";
+  if (!kpi.status) {
+    const v   = kpi.value - kpi.budget;
+    const pct = kpi.budget !== 0 ? v / kpi.budget : 0;
+    const bad = !kpi.trendPositive;
+    if (Math.abs(pct) < 0.005)       status = "neutral";
+    else if (bad && pct > 0.05)       status = "unfavorable";
+    else if (bad && pct > 0.01)       status = "watch";
+    else if (!bad && pct < -0.05)     status = "unfavorable";
+    else if (!bad && pct < -0.01)     status = "watch";
+    else                              status = "favorable";
+  }
 
-  const overBudget = !kpi.trendPositive && kpi.format !== "headcount" && kpi.budget > 0 && variance > 0;
-  const isGood     =
-    kpi.trend === "flat"
-      ? true
-      : kpi.trend === "up"
-      ? kpi.trendPositive
-      : !kpi.trendPositive;
+  const cfg = statusConfig[status];
 
-  const showProgress = kpi.budget > 0 && (kpi.format === "currency" || kpi.format === "headcount");
-  const progressPct  = kpi.budget > 0 ? kpi.value / kpi.budget : 0;
-  const progressColor =
-    progressPct > 1.05 ? "bg-red-500" :
-    progressPct > 0.95 ? "bg-amber-400" :
-    "bg-nexora-500";
-
-  // Status label
-  const statusLabel = kpi.format === "headcount" && kpi.budget > 0
-    ? `${kpi.value}/${kpi.budget} filled · ${kpi.budget - kpi.value} open`
-    : kpi.budget > 0
-    ? variance > 0
-      ? `▲ ${formatPercent(Math.abs(variancePct))} over plan`
-      : `▼ ${formatPercent(Math.abs(variancePct))} under plan`
-    : null;
-
-  const statusClass = kpi.format === "headcount" && kpi.budget > 0
-    ? "bg-nexora-50 text-nexora-700"
-    : overBudget
-    ? "bg-red-50 text-red-700"
-    : kpi.budget > 0
-    ? "bg-emerald-50 text-emerald-700"
-    : "bg-slate-100 text-slate-500";
+  // Large value color: only deep red for genuinely unfavorable
+  const valueColor = status === "unfavorable"
+    ? "text-red-700"
+    : "text-slate-900";
 
   return (
-    <div className="card-hover p-5 flex flex-col gap-3 overflow-hidden relative">
-      {/* Over-budget glow */}
-      {overBudget && (
-        <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/5 rounded-full blur-xl pointer-events-none" />
-      )}
-
-      {/* Row 1: Label + trend chip */}
+    <div className={clsx(
+      "card-hover flex flex-col gap-3 p-5 overflow-hidden relative",
+      cfg.bg
+    )}>
+      {/* Row 1: Label + Status pill */}
       <div className="flex items-start justify-between gap-2">
         <p className="label leading-relaxed">{kpi.label}</p>
-        <TrendChip kpi={kpi} />
+        <span className={clsx(
+          "text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0",
+          cfg.pill
+        )}>
+          {cfg.label}
+        </span>
       </div>
 
-      {/* Row 2: Value */}
-      <p className={clsx(
-        "text-[26px] font-black leading-none tracking-tight",
-        overBudget ? "text-red-700" : "text-slate-900"
-      )}>
+      {/* Row 2: Primary value */}
+      <p className={clsx("text-[28px] font-black leading-none tracking-tight", valueColor)}>
         {fmtValue(kpi)}
       </p>
 
-      {/* Row 3: Sparkline */}
-      {showSparkline && (
-        <Sparkline format={kpi.format} isGood={isGood} />
-      )}
+      {/* Row 3: Variance vs. budget (the answer to "how does it compare?") */}
+      <VarianceRow kpi={kpi} status={status} />
 
-      {/* Row 4: Budget context + progress bar */}
-      {kpi.budget > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-medium">
-              Budget: {fmtValue({ ...kpi, value: kpi.budget })}
-            </span>
-            {kpi.format !== "headcount" && kpi.budget > 0 && (
-              <span className={clsx(
-                "text-[10px] font-bold",
-                variance > 0 ? "text-red-600" : "text-emerald-600"
-              )}>
-                {Math.round(progressPct * 100)}% utilized
-              </span>
-            )}
-          </div>
-          {showProgress && (
-            <div className="progress-bar-track">
-              <div
-                className={clsx("progress-bar-fill", progressColor)}
-                style={{ width: `${Math.min(progressPct * 100, 100)}%` }}
-              />
-            </div>
-          )}
+      {/* Row 4: Driver text (the answer to "why?") */}
+      {kpi.driver && (
+        <div className="border-t border-slate-100 pt-2.5 mt-0.5">
+          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">
+            Driver
+          </p>
+          <p className="text-[11px] text-slate-600 leading-relaxed">
+            {kpi.driver}
+          </p>
         </div>
       )}
 
-      {/* Row 5: Status pill */}
-      {statusLabel && (
-        <div className={clsx(
-          "rounded-lg px-2.5 py-1.5 text-[10px] font-semibold w-fit",
-          statusClass
-        )}>
-          {statusLabel}
+      {/* Row 5: Action (the answer to "what to do?") — only shown if present */}
+      {kpi.action && (
+        <div className="flex items-start gap-1.5 bg-slate-50 border border-slate-100 rounded-xl px-2.5 py-2 mt-0.5">
+          <span className="text-nexora-400 text-[10px] mt-0.5 shrink-0">→</span>
+          <p className="text-[10px] text-slate-600 leading-snug">{kpi.action}</p>
         </div>
       )}
     </div>

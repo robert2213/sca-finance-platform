@@ -150,6 +150,8 @@ export interface RecommendedAction {
 
 // ─── Dashboard KPIs ───────────────────────────────────────────────────────────
 
+export type KPIStatus = "favorable" | "unfavorable" | "watch" | "neutral";
+
 export interface KPI {
   label: string;
   value: number;
@@ -158,4 +160,11 @@ export interface KPI {
   format: "currency" | "percent" | "number" | "headcount";
   trend: "up" | "down" | "flat";
   trendPositive: boolean;    // whether up is good or bad for this KPI
+
+  // ── Narrative fields (optional — used by executive dashboard KPIs) ─────────
+  status?: KPIStatus;        // explicit favorable/unfavorable override
+  driver?: string;           // 1-sentence explanation of why this is happening
+  action?: string;           // recommended action
+  varianceDollar?: number;   // explicit $ variance (overrides computed value - budget)
+  hasBudget?: boolean;       // false = no budget comparison to show
 }
