@@ -162,7 +162,7 @@ Fill rate has held steady at ${(s.fillRate * 100).toFixed(0)}% over the past 3 m
 |---|---|---|
 | VP | ${s.headcount.filter(h => h.level === "VP").length} | ${fmt(272_000)} |
 | Director | ${s.headcount.filter(h => h.level === "Dir").length} | ${fmt(213_000)} |
-| M1/M2/M3 | ${s.headcount.filter(h => ["M1","M2","M3"].includes(h.level)).length} | ${fmt(181_000)} |
+| M1/M2/M3 | ${s.headcount.filter(h => (["M1","M2","M3"] as string[]).includes(h.level)).length} | ${fmt(181_000)} |
 | IC5 (Sr. Principal) | ${s.headcount.filter(h => h.level === "IC5").length} | ${fmt(188_000)} |
 | IC4 (Senior) | ${s.headcount.filter(h => h.level === "IC4").length} | ${fmt(160_000)} |
 | IC3 (Mid-Level) | ${s.headcount.filter(h => h.level === "IC3").length} | ${fmt(109_000)} |

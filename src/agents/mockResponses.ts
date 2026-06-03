@@ -10,39 +10,43 @@
 import type { AgentId, AgentResponse } from "@/types/finance";
 import { dispatchAgent, type ConversationTurn } from "./agentEngine";
 
+// ─── Extended response type that includes the routing debug tag ───────────────
+
+export type AgentResponseWithRoute = AgentResponse & { routeKey: string };
+
 // ─── Main dispatcher (used by AgentChatPanel + /api/agent) ───────────────────
 
 export function getAgentResponse(
   agentId: AgentId,
   question: string,
   history: ConversationTurn[] = []
-): AgentResponse {
+): AgentResponseWithRoute {
   return dispatchAgent(agentId, question, history);
 }
 
 // ─── Named agent functions (backward-compatible for direct callers) ───────────
 
-export function cfoRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function cfoRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("cfo", question, history);
 }
 
-export function fpaRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function fpaRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("fpa", question, history);
 }
 
-export function procurementRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function procurementRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("procurement", question, history);
 }
 
-export function externalLaborRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function externalLaborRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("external-labor", question, history);
 }
 
-export function headcountRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function headcountRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("headcount", question, history);
 }
 
-export function cioRespond(question: string, history?: ConversationTurn[]): AgentResponse {
+export function cioRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
   return dispatchAgent("cio", question, history);
 }
 

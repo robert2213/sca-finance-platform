@@ -8,22 +8,20 @@
 
 import {
   getYTDActual, getYTDBudget, getYTDVariance,
-  getMonthlyTotals, getByBusinessUnit, getByCategory, actuals,
+  getMonthlyTotals, getByBusinessUnit,
 } from "@/data/actuals";
 import {
   contractors, getTotalContractorYTDSpend, getTotalContractorBudget,
   getOverBudgetContractors, getEndingSoonContractors, getContractorsByBU,
 } from "@/data/externalLabor";
 import {
-  vendors, getVendorsExpiringSoon, getTotalAnnualCommitment,
+  getVendorsExpiringSoon, getTotalAnnualCommitment,
   getTotalYTDVendorSpend, getTopVendorsBySpend, getVendorsByRisk,
 } from "@/data/vendors";
 import {
   headcount, getHeadcountSummary, getOpenReqs,
   getHCByBusinessUnit, getTotalAnnualSalaryBudget,
 } from "@/data/headcount";
-export { headcount } from "@/data/headcount";
-export { contractors } from "@/data/externalLabor";
 import {
   getTotalCloudYTD, getTotalCloudBudgetYTD, getCloudByProvider,
   getTotalCloudSpendByMonth,

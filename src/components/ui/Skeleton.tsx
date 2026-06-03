@@ -1,11 +1,9 @@
 import clsx from "clsx";
 
-interface SkeletonProps {
-  className?: string;
-}
+type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
 
-export function Skeleton({ className }: SkeletonProps) {
-  return <div className={clsx("skeleton-shimmer", className)} />;
+export function Skeleton({ className, ...rest }: SkeletonProps) {
+  return <div className={clsx("skeleton-shimmer", className)} {...rest} />;
 }
 
 export function KPICardSkeleton() {

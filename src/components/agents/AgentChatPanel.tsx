@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { AgentId } from "@/types/finance";
-import { getAgentResponse, type ConversationTurn } from "@/agents/mockResponses";
+import { getAgentResponse, type ConversationTurn, type AgentResponseWithRoute } from "@/agents/mockResponses";
 import { getAgent } from "@/agents/registry";
 import { TypingDots } from "@/components/ui/Spinner";
 import clsx from "clsx";
@@ -213,7 +213,7 @@ export default function AgentChatPanel({
     await new Promise(r => setTimeout(r, thinkDelay));
 
     // Get response from agent engine (with history context)
-    const response = getAgentResponse(agentId, text, updatedHistory);
+    const response: AgentResponseWithRoute = getAgentResponse(agentId, text, updatedHistory);
     setLoading(false);
 
     // Stream the response text
@@ -225,7 +225,7 @@ export default function AgentChatPanel({
       content:   response.answer,
       keyPoints: response.keyPoints,
       actions:   response.actions,
-      routeKey:  (response as any).routeKey,
+      routeKey:  response.routeKey,
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, agentMsg]);
@@ -233,7 +233,7 @@ export default function AgentChatPanel({
     // Update history for future turns
     setHistory([
       ...updatedHistory,
-      { role: "agent", content: response.answer, routeKey: (response as any).routeKey },
+      { role: "agent", content: response.answer, routeKey: response.routeKey },
     ]);
 
     // Refocus input

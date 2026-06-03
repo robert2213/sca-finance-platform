@@ -1,4 +1,5 @@
-import type { AgentId, AgentResponse } from "@/types/finance";
+import type { AgentId } from "@/types/finance";
+import type { ConversationTurn, AgentResponseWithRoute } from "./mockResponses";
 
 export interface AgentDefinition {
   id: AgentId;
@@ -9,5 +10,5 @@ export interface AgentDefinition {
   color: string;       // Tailwind color key
   capabilities: string[];
   suggestedQuestions: string[];
-  respond: (question: string) => AgentResponse;
+  respond: (question: string, history?: ConversationTurn[]) => AgentResponseWithRoute;
 }
