@@ -5,9 +5,21 @@ import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import KPICard from "@/components/dashboard/KPICard";
 import { getMonthlyTotals, getByBusinessUnit, getByCategory, actuals } from "@/data/actuals";
-import { formatCurrency, formatPercent } from "@/lib/formatters";
+import { formatCurrency } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
+
+function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+  return (
+    <div className="section-heading">
+      <span className="section-heading-bar" />
+      <span className="section-heading-text">
+        {label}
+        {sub && <span className="section-heading-sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
 
 export default function FPAPage() {
   const monthly   = getMonthlyTotals();
@@ -60,108 +72,115 @@ export default function FPAPage() {
     >
       <StatsBanner />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
-      </div>
+      <section className="mb-8">
+        <SectionHeader label="Key Performance Indicators" sub="YTD May 2026 · variance metrics" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
+        </div>
+      </section>
 
       {/* Chart + Chat */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
-        <div className="xl:col-span-2 card overflow-hidden">
-          <div className="card-header flex items-center justify-between">
-            <div>
-              <h2 className="section-title">Monthly Budget vs. Actual vs. Forecast</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">All cost centers combined · Jan–May 2026</p>
+      <section className="mb-8">
+        <SectionHeader label="Spend Trend & Agent Analysis" sub="Monthly budget vs. actuals and FP&A chat" />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2 card overflow-hidden">
+            <div className="card-header flex items-center justify-between">
+              <div>
+                <h2 className="section-title">Monthly Budget vs. Actual vs. Forecast</h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">All cost centers combined · Jan–May 2026</p>
+              </div>
+              <div className="hidden md:flex items-center gap-1 text-[10px] text-slate-500">
+                {monthly.map((m, i) => {
+                  const v = m.actual - m.budget;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0.5">
+                      <span className={clsx("font-bold", v > 0 ? "text-red-500" : "text-emerald-600")}>
+                        {v > 0 ? "↑" : "↓"}
+                      </span>
+                      <span className="text-slate-300">{m.month}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            {/* Month-over-month variance trend */}
-            <div className="hidden md:flex items-center gap-1 text-[10px] text-slate-500">
-              {monthly.map((m, i) => {
-                const v = m.actual - m.budget;
-                return (
-                  <div key={i} className="flex flex-col items-center gap-0.5">
-                    <span className={clsx("font-bold", v > 0 ? "text-red-500" : "text-emerald-600")}>
-                      {v > 0 ? "↑" : "↓"}
-                    </span>
-                    <span className="text-slate-300">{m.month}</span>
-                  </div>
-                );
-              })}
+            <div className="p-6 pt-4">
+              <BudgetVsActualChart data={chartData} height={300} />
             </div>
           </div>
-          <div className="p-6 pt-4">
-            <BudgetVsActualChart data={chartData} height={300} />
-          </div>
+          <AgentChatPanel agentId="fpa" initialQuestion="What are the main drivers of our YTD budget variance?" />
         </div>
-        <AgentChatPanel agentId="fpa" initialQuestion="What are the main drivers of our budget variance?" />
-      </div>
+      </section>
 
       {/* BU table */}
-      <div className="mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Variance by Business Unit" sub="YTD actuals vs. approved plan" />
         <VarianceTable
           title="YTD Variance by Business Unit"
-          subtitle="Rows highlighted in red = >$200K unfavorable"
+          subtitle="Rows flagged in red exceed $200K unfavorable"
           rows={buRows}
           showForecast
         />
-      </div>
+      </section>
 
       {/* Category + May detail */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <VarianceTable
-          title="YTD Variance by Cost Category"
-          subtitle="Sorted by largest unfavorable variance"
-          rows={catRows}
-        />
+      <section>
+        <SectionHeader label="Cost Category & Monthly Detail" sub="Breakdown by spend type and May cost center drill-down" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <VarianceTable
+            title="YTD Variance by Cost Category"
+            subtitle="Sorted by largest unfavorable variance"
+            rows={catRows}
+          />
 
-        {/* May cost center detail */}
-        <div className="card overflow-hidden">
-          <div className="card-header">
-            <h2 className="section-title">May 2026 — Cost Center Detail</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              <span className="inline-block w-2 h-2 rounded-full bg-nexora-400 mr-1" />
-              Highlighted = &gt;5% unfavorable variance
-            </p>
-          </div>
-          <div className="overflow-y-auto" style={{ maxHeight: "360px" }}>
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
-                <tr>
-                  <th className="px-4 py-2.5 text-left tbl-head">Cost Center</th>
-                  <th className="px-3 py-2.5 text-right tbl-head">Actual</th>
-                  <th className="px-3 py-2.5 text-right tbl-head">Budget</th>
-                  <th className="px-3 py-2.5 text-right tbl-head">Var%</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {mayActuals.map((r, i) => (
-                  <tr key={i} className={clsx(
-                    "tbl-row",
-                    r.variancePct > 0.05 ? "bg-nexora-50/50" : ""
-                  )}>
-                    <td className="px-4 py-2.5">
-                      <p className="font-semibold text-slate-800">{r.costCenterName}</p>
-                      <p className="text-slate-400 text-[10px]">{r.businessUnit}</p>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-slate-800">
-                      ${(r.actual / 1000).toFixed(0)}K
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-slate-500">
-                      ${(r.budget / 1000).toFixed(0)}K
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <span className={clsx(
-                        "font-bold",
-                        r.variance > 0 ? "text-red-600" : "text-emerald-600"
-                      )}>
-                        {r.variance > 0 ? "+" : ""}{(r.variancePct * 100).toFixed(1)}%
-                      </span>
-                    </td>
+          <div className="card overflow-hidden">
+            <div className="card-header">
+              <h2 className="section-title">May 2026 — Cost Center Detail</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Highlighted rows = &gt;5% unfavorable variance
+              </p>
+            </div>
+            <div className="overflow-y-auto" style={{ maxHeight: "360px" }}>
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left tbl-head">Cost Center</th>
+                    <th className="px-3 py-2.5 text-right tbl-head">Actual</th>
+                    <th className="px-3 py-2.5 text-right tbl-head">Budget</th>
+                    <th className="px-3 py-2.5 text-right tbl-head">Var %</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {mayActuals.map((r, i) => (
+                    <tr key={i} className={clsx(
+                      "tbl-row",
+                      r.variancePct > 0.05 ? "bg-red-50/30" : ""
+                    )}>
+                      <td className="px-4 py-2.5">
+                        <p className="font-semibold text-slate-800">{r.costCenterName}</p>
+                        <p className="text-slate-400 text-[10px]">{r.businessUnit}</p>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-bold text-slate-800">
+                        {formatCurrency(r.actual, true)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-500">
+                        {formatCurrency(r.budget, true)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className={clsx(
+                          "font-bold text-xs",
+                          r.variance > 0 ? "text-red-600" : "text-emerald-600"
+                        )}>
+                          {r.variance > 0 ? "+" : ""}{(r.variancePct * 100).toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </PageWrapper>
   );
 }

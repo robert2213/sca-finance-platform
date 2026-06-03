@@ -12,6 +12,18 @@ import { formatCurrency, formatDate, daysUntil, isExpiringSoon } from "@/lib/for
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
 
+function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+  return (
+    <div className="section-heading">
+      <span className="section-heading-bar" />
+      <span className="section-heading-text">
+        {label}
+        {sub && <span className="section-heading-sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
+
 export default function VendorsPage() {
   const expiring   = getVendorsExpiringSoon(180);
   const procRisks  = generateRiskFlags().filter(r => r.category === "Procurement");
@@ -41,11 +53,16 @@ export default function VendorsPage() {
     >
       <StatsBanner />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
-      </div>
+      <section className="mb-8">
+        <SectionHeader label="Key Performance Indicators" sub="Vendor portfolio health" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Vendor Portfolio & Agent Analysis" sub="Contract status, risk levels, expiry timeline" />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Vendor table */}
         <div className="xl:col-span-2 card overflow-hidden">
           <div className="card-header flex items-center justify-between">
@@ -149,10 +166,14 @@ export default function VendorsPage() {
           </div>
         </div>
 
-        <AgentChatPanel agentId="procurement" initialQuestion="Which contracts are expiring in the next 6 months?" />
-      </div>
+        <AgentChatPanel agentId="procurement" initialQuestion="Which contracts are expiring in the next 90 days?" />
+        </div>
+      </section>
 
-      <RiskAlerts flags={procRisks} />
+      <section>
+        <SectionHeader label="Procurement Risk Alerts" sub="Active flags requiring action" />
+        <RiskAlerts flags={procRisks} />
+      </section>
     </PageWrapper>
   );
 }

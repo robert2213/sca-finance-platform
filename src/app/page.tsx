@@ -11,6 +11,18 @@ import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine"
 import { getMonthlyTotals, getByBusinessUnit } from "@/data/actuals";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
+function SectionHeader({ label, sub, accent }: { label: string; sub?: string; accent?: string }) {
+  return (
+    <div className="section-heading">
+      <span className={`section-heading-bar${accent ? ` bg-${accent}` : ""}`} />
+      <span className="section-heading-text">
+        {label}
+        {sub && <span className="section-heading-sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const kpis    = buildDashboardKPIs();
   const risks   = generateRiskFlags();
@@ -36,11 +48,12 @@ export default function DashboardPage() {
   const ytdBudget = byBU.reduce((s, b) => s + b.budget, 0);
   const ytdVar    = ytdActual - ytdBudget;
   const ytdVarPct = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
+  const critCount = risks.filter(r => r.severity === "critical").length;
 
   return (
     <PageWrapper
       title="IT Finance Dashboard"
-      subtitle="Nexora AI Finance Department — Executive Overview"
+      subtitle="Nexora AI Finance Department — Executive Overview · YTD May 2026"
       badge="Live"
     >
       {/* Quick-stats strip */}
@@ -48,14 +61,15 @@ export default function DashboardPage() {
 
       {/* KPI grid */}
       <section className="mb-8">
-        <p className="label mb-4">Key Performance Indicators — YTD May 2026</p>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <SectionHeader label="Key Performance Indicators" sub="YTD May 2026 · vs. approved plan" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {kpis.map((kpi, i) => <KPICard key={i} kpi={kpi} />)}
         </div>
       </section>
 
       {/* AI Executive Summary */}
       <section className="mb-8">
+        <SectionHeader label="Executive Summary" sub="CFO Agent · AI-generated narrative" />
         <ExecutiveSummaryBox
           agentName="CFO Agent"
           agentAvatar="🏦"
@@ -64,41 +78,45 @@ export default function DashboardPage() {
             `YTD spend: ${formatCurrency(ytdActual)} vs. budget ${formatCurrency(ytdBudget)} — variance ${formatCurrency(ytdVar)} (${formatPercent(ytdVarPct)})`,
             "Cloud Engineering and Data & Analytics are primary overage drivers — AI/ML infrastructure scaling in AWS and GCP",
             "4 of 12 active contractors over approved budget — SOW amendments required before June 30 close",
-            `${risks.filter(r => r.severity === "critical").length} critical risks flagged — AWS contract expiry (June 30) is highest priority`,
+            `${critCount} critical risk${critCount !== 1 ? "s" : ""} flagged — AWS contract expiry (June 30) is highest priority`,
             "Full-year forecast revised to $38.2M (+$1.8M vs. plan) — FinOps program targeting $350K recovery in H2",
           ]}
         />
       </section>
 
       {/* Chart + Risk Alerts */}
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
-        <div className="lg:col-span-3 card overflow-hidden">
-          <div className="card-header flex items-center justify-between">
-            <div>
-              <h2 className="section-title">Monthly Spend — Budget vs. Actual vs. Forecast</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Jan–May 2026 · All IT cost centers combined</p>
+      <section className="mb-8">
+        <SectionHeader label="Financial Performance" sub="Monthly spend trend and active risk flags" />
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3 card overflow-hidden">
+            <div className="card-header flex items-center justify-between">
+              <div>
+                <h2 className="section-title">Monthly Spend — Budget vs. Actual vs. Forecast</h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">Jan–May 2026 · All IT cost centers combined</p>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-500">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-slate-300 inline-block" /> Budget</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-nexora-500 inline-block" /> Actual</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-nexora-300 inline-block" /> Forecast</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" /> Budget</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-nexora-500 inline-block" /> Actual</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-nexora-300 inline-block" /> Forecast</span>
+            <div className="p-6 pt-4">
+              <BudgetVsActualChart data={chartData} height={300} />
             </div>
           </div>
-          <div className="p-6 pt-4">
-            <BudgetVsActualChart data={chartData} height={300} />
-          </div>
-        </div>
 
-        <div className="lg:col-span-2">
-          <RiskAlerts flags={risks} limit={4} />
+          <div className="lg:col-span-2">
+            <RiskAlerts flags={risks} limit={4} />
+          </div>
         </div>
       </section>
 
       {/* Variance table */}
       <section className="mb-8">
+        <SectionHeader label="Variance Analysis" sub="YTD budget vs. actuals by business unit" />
         <VarianceTable
           title="YTD Budget vs. Actuals by Business Unit"
-          subtitle="Jan–May 2026 · Click column headers to sort"
+          subtitle="Jan–May 2026 · Rows flagged in red exceed $150K unfavorable"
           rows={buRows}
           showForecast
         />
@@ -106,6 +124,7 @@ export default function DashboardPage() {
 
       {/* Actions */}
       <section>
+        <SectionHeader label="Recommended Actions" sub="Prioritized tasks for finance and procurement teams" />
         <RecommendedActions actions={actions} />
       </section>
     </PageWrapper>

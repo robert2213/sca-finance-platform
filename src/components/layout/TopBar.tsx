@@ -25,7 +25,7 @@ export default function TopBar({ title, subtitle, badge, onMenuClick }: TopBarPr
 
         <div className="min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-base font-bold text-slate-900 leading-tight truncate">{title}</h1>
+            <h1 className="text-[17px] font-bold text-slate-900 leading-tight truncate">{title}</h1>
             {badge && (
               <span className="shrink-0 px-2 py-0.5 rounded-full bg-nexora-100 text-nexora-700 text-[10px] font-bold uppercase tracking-wider border border-nexora-200">
                 {badge}
@@ -33,7 +33,7 @@ export default function TopBar({ title, subtitle, badge, onMenuClick }: TopBarPr
             )}
           </div>
           {subtitle && (
-            <p className="text-[11px] text-slate-400 leading-tight truncate hidden sm:block">{subtitle}</p>
+            <p className="text-[11px] text-slate-400 leading-tight truncate">{subtitle}</p>
           )}
         </div>
       </div>

@@ -16,6 +16,18 @@ import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
 
+function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+  return (
+    <div className="section-heading">
+      <span className="section-heading-bar" />
+      <span className="section-heading-text">
+        {label}
+        {sub && <span className="section-heading-sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
+
 export default function CIOPage() {
   const cloudByMonth   = getTotalCloudSpendByMonth();
   const cloudProviders = getCloudByProvider();
@@ -63,12 +75,15 @@ export default function CIOPage() {
     >
       <StatsBanner />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
-      </div>
+      <section className="mb-8">
+        <SectionHeader label="Key Performance Indicators" sub="IT investment metrics · YTD May 2026" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
+        </div>
+      </section>
 
-      {/* CIO Executive Summary */}
-      <div className="mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Executive Summary" sub="CIO Finance Partner · IT investment narrative" />
         <ExecutiveSummaryBox
           agentName="CIO Finance Partner Agent"
           agentAvatar="💡"
@@ -81,10 +96,11 @@ export default function CIOPage() {
             "FinOps program = $350K savings target by Q4 through right-sizing and committed use discounts",
           ]}
         />
-      </div>
+      </section>
 
-      {/* Cloud trend chart + Chat */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Cloud Spend Trend & Agent Analysis" sub="Provider breakdown and CIO briefing chat" />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 card overflow-hidden">
           <div className="card-header flex items-center justify-between">
             <div>
@@ -113,12 +129,14 @@ export default function CIOPage() {
 
         <AgentChatPanel
           agentId="cio"
-          initialQuestion="Give me CIO-ready talking points on our IT financial performance"
+          initialQuestion="Prepare a 5-point IT financial briefing for the executive team"
         />
-      </div>
+        </div>
+      </section>
 
-      {/* Cloud provider table + IT breakdown */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Cloud Provider Detail & IT Investment Mix" sub="Provider variance and spend category breakdown" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <VarianceTable
           title="Cloud Spend by Provider — YTD"
           subtitle="All three providers trending over budget"
@@ -164,10 +182,12 @@ export default function CIOPage() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      </section>
 
-      {/* Cloud provider detail cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <section>
+        <SectionHeader label="Cloud Provider Cards" sub="YTD spend and budget variance per provider" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {cloudProviders.map(p => {
           const v   = p.ytdSpend - p.ytdBudget;
           const pct = p.ytdBudget > 0 ? v / p.ytdBudget : 0;
@@ -201,7 +221,8 @@ export default function CIOPage() {
             </div>
           );
         })}
-      </div>
+        </div>
+      </section>
     </PageWrapper>
   );
 }

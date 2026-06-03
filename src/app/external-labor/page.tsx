@@ -11,6 +11,18 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
 
+function SectionHeader({ label, sub }: { label: string; sub?: string }) {
+  return (
+    <div className="section-heading">
+      <span className="section-heading-bar" />
+      <span className="section-heading-text">
+        {label}
+        {sub && <span className="section-heading-sub">{sub}</span>}
+      </span>
+    </div>
+  );
+}
+
 export default function ExternalLaborPage() {
   const ytdSpend   = getTotalContractorYTDSpend();
   const ytdBudget  = getTotalContractorBudget();
@@ -52,9 +64,12 @@ export default function ExternalLaborPage() {
     >
       <StatsBanner />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
-      </div>
+      <section className="mb-8">
+        <SectionHeader label="Key Performance Indicators" sub="Contractor spend vs. approved SOW budgets" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
+        </div>
+      </section>
 
       {/* Summary alert banner */}
       {overBudget.length > 0 && (
@@ -77,7 +92,9 @@ export default function ExternalLaborPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
+      <section className="mb-8">
+        <SectionHeader label="Contractor Roster & Agent Analysis" sub="Active engagements sorted by budget variance" />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Contractor table */}
         <div className="xl:col-span-2 card overflow-hidden">
           <div className="card-header flex items-center justify-between">
@@ -162,14 +179,18 @@ export default function ExternalLaborPage() {
           </div>
         </div>
 
-        <AgentChatPanel agentId="external-labor" initialQuestion="Which contractors are over their approved budgets?" />
-      </div>
+        <AgentChatPanel agentId="external-labor" initialQuestion="Which contractors are over their approved SOW budget?" />
+        </div>
+      </section>
 
-      <VarianceTable
+      <section>
+        <SectionHeader label="Spend by Business Unit" sub="YTD contractor spend vs. approved budget" />
+        <VarianceTable
         title="Contractor Spend by Business Unit"
         subtitle="Highlighted rows = over approved budget"
         rows={buRows}
-      />
+        />
+      </section>
     </PageWrapper>
   );
 }

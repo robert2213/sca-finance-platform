@@ -69,9 +69,8 @@ export default function RecommendedActions({ actions, limit }: RecommendedAction
                     "text-[10px] font-bold px-1.5 py-0.5 rounded-md",
                     cfg.pill
                   )}>
-                    {action.priority.toUpperCase()}
+                    {action.priority.toUpperCase()} PRIORITY
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">{action.id}</span>
                 </div>
 
                 <p className="text-sm font-semibold text-slate-800 leading-snug">

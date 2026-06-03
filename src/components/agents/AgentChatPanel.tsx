@@ -274,14 +274,18 @@ export default function AgentChatPanel({
 
         {/* Empty state */}
         {messages.length === 0 && !loading && (
-          <div className="flex flex-col items-center text-center py-4">
-            <div className="w-14 h-14 rounded-2xl bg-nexora-50 border border-nexora-100 flex items-center justify-center text-3xl mb-3 shadow-sm">
-              {agent.avatar}
+          <div className="flex flex-col py-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-nexora-50 border border-nexora-100 flex items-center justify-center text-2xl shadow-sm shrink-0">
+                {agent.avatar}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-800">{agent.name}</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed">{agent.description}</p>
+              </div>
             </div>
-            <p className="text-sm font-bold text-slate-700 mb-1">{agent.name}</p>
-            <p className="text-[11px] text-slate-400 mb-5 max-w-xs leading-relaxed">{agent.description}</p>
-            <div className="w-full space-y-2">
-              <p className="label mb-2">Suggested questions</p>
+            <p className="label mb-2.5">Finance prompts — click to ask</p>
+            <div className="grid grid-cols-1 gap-1.5">
               {agent.suggestedQuestions.map((q, i) => (
                 <SuggestionChip key={i} text={q} onClick={() => sendMessage(q)} disabled={loading} />
               ))}

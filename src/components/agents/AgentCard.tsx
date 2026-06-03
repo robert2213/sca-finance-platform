@@ -67,14 +67,17 @@ export default function AgentCard({ agent }: AgentCardProps) {
           ))}
         </div>
 
-        {/* Sample question */}
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
-          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide mb-1">
+        {/* Sample questions */}
+        <div className="space-y-1.5">
+          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">
             Try asking…
           </p>
-          <p className="text-[11px] text-slate-600 italic leading-snug">
-            "{agent.suggestedQuestions[0]}"
-          </p>
+          {agent.suggestedQuestions.slice(0, 2).map((q, i) => (
+            <div key={i} className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 flex items-start gap-2">
+              <span className="text-[9px] text-slate-300 font-bold mt-0.5 shrink-0">Q{i + 1}</span>
+              <p className="text-[11px] text-slate-600 leading-snug">{q}</p>
+            </div>
+          ))}
         </div>
 
         {/* CTA */}

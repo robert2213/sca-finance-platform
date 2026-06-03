@@ -106,8 +106,6 @@ export default function RiskAlerts({ flags, limit }: RiskAlertsProps) {
                       {cfg.label.toUpperCase()}
                     </span>
                     <span className="text-[10px] text-slate-400 font-medium">{flag.category}</span>
-                    <span className="text-[10px] text-slate-300">·</span>
-                    <span className="text-[10px] text-slate-400 font-mono">{flag.id}</span>
                   </div>
 
                   {/* Title */}

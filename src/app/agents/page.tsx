@@ -1,16 +1,14 @@
 import PageWrapper from "@/components/layout/PageWrapper";
 import AgentCard from "@/components/agents/AgentCard";
-import StatsBanner from "@/components/dashboard/StatsBanner";
 import { agentRegistry } from "@/agents/registry";
 
 export default function AgentsPage() {
   return (
     <PageWrapper
       title="Agent Command Center"
-      subtitle="6 specialized AI agents — each grounded in live financial data"
+      subtitle="6 specialized AI finance agents — each grounded in live financial data"
       badge="6 Active"
     >
-      <StatsBanner />
 
       {/* Hero banner */}
       <div className="relative rounded-2xl overflow-hidden mb-8 border border-nexora-800/40 shadow-lg">

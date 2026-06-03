@@ -2,26 +2,38 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import clsx from "clsx";
+import {
+  LayoutDashboard,
+  Bot,
+  TrendingUp,
+  BarChart3,
+  ShoppingCart,
+  HardHat,
+  Users,
+  Lightbulb,
+  X,
+} from "lucide-react";
 
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  sublabel?: string;
+  icon: React.ElementType;
   badge?: string;
   badgeVariant?: "critical" | "warning" | "info" | "success";
 }
 
 const nav: NavItem[] = [
-  { href: "/",               label: "Dashboard",       icon: "▦"  },
-  { href: "/agents",         label: "Agent Command",   icon: "⬡",  badge: "6", badgeVariant: "info" },
-  { href: "/cfo",            label: "CFO Summary",     icon: "◈"  },
-  { href: "/fpa",            label: "FP&A Variance",   icon: "⊞"  },
-  { href: "/vendors",        label: "Vendor Spend",    icon: "◉"  },
-  { href: "/external-labor", label: "External Labor",  icon: "◎",  badge: "4!", badgeVariant: "warning" },
-  { href: "/headcount",      label: "Headcount",       icon: "⊹"  },
-  { href: "/cio",            label: "CIO Briefing",    icon: "◆"  },
+  { href: "/",               label: "Dashboard",     sublabel: "Executive overview",  icon: LayoutDashboard },
+  { href: "/agents",         label: "AI Agents",     sublabel: "6 finance agents",    icon: Bot,   badge: "6", badgeVariant: "info" },
+  { href: "/cfo",            label: "CFO Summary",   sublabel: "Executive narrative",  icon: TrendingUp },
+  { href: "/fpa",            label: "FP&A Variance", sublabel: "Budget vs. actuals",  icon: BarChart3 },
+  { href: "/vendors",        label: "Vendor Spend",  sublabel: "Contracts & risk",    icon: ShoppingCart },
+  { href: "/external-labor", label: "Ext. Labor",    sublabel: "Contractor spend",    icon: HardHat, badge: "4!", badgeVariant: "warning" },
+  { href: "/headcount",      label: "Headcount",     sublabel: "Workforce planning",  icon: Users },
+  { href: "/cio",            label: "CIO Briefing",  sublabel: "IT leadership view",  icon: Lightbulb },
 ];
 
 const badgeColors: Record<string, string> = {
@@ -39,7 +51,6 @@ interface SidebarProps {
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
 
-  // Close sidebar on route change (mobile)
   useEffect(() => {
     onClose?.();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,9 +71,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         className={clsx(
           "fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col z-30",
           "transition-transform duration-300 ease-in-out",
-          // Desktop: always visible
           "lg:translate-x-0",
-          // Mobile: slide in/out
           open ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
         )}
       >
@@ -77,15 +86,12 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <p className="text-[10px] text-slate-400 leading-tight font-medium">AI Finance Dept.</p>
             </div>
           </div>
-          {/* Mobile close */}
           <button
             onClick={onClose}
             className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
             aria-label="Close sidebar"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -95,35 +101,44 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           {nav.map((item) => {
             const active =
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={clsx("nav-link group relative", active && "nav-link-active")}
               >
-                {/* Active indicator bar */}
                 {active && (
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-white/50 rounded-r-full -ml-3" />
                 )}
 
-                {/* Icon */}
                 <span
                   className={clsx(
-                    "w-7 h-7 rounded-lg flex items-center justify-center text-base shrink-0 transition-colors",
+                    "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors",
                     active
                       ? "bg-white/20 text-white"
                       : "bg-slate-100 text-slate-500 group-hover:bg-slate-200 group-hover:text-slate-700"
                   )}
                 >
-                  {item.icon}
+                  <Icon className="w-3.5 h-3.5" />
                 </span>
 
-                <span className="flex-1 truncate">{item.label}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="leading-tight text-[13px] font-semibold truncate">{item.label}</p>
+                  {item.sublabel && (
+                    <p className={clsx(
+                      "text-[10px] leading-tight truncate mt-0.5",
+                      active ? "text-white/60" : "text-slate-400"
+                    )}>
+                      {item.sublabel}
+                    </p>
+                  )}
+                </div>
 
                 {item.badge && (
                   <span
                     className={clsx(
-                      "text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none",
+                      "text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none shrink-0",
                       active
                         ? "bg-white/25 text-white"
                         : badgeColors[item.badgeVariant ?? "info"]
@@ -139,7 +154,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <div className="px-4 py-4 border-t border-slate-100 space-y-3">
-          {/* User */}
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-nexora-100 to-nexora-200 flex items-center justify-center text-nexora-700 font-bold text-xs shrink-0">
               IT
@@ -150,7 +164,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </div>
           </div>
 
-          {/* AI mode pill */}
           <div className="rounded-xl bg-gradient-to-r from-nexora-50 to-purple-50 border border-nexora-100 px-3 py-2.5 flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-nexora-500 animate-pulse shrink-0" />
             <div>
@@ -159,7 +172,6 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
             </div>
           </div>
 
-          {/* Period */}
           <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
             <span>YTD May 2026</span>
             <span className="flex items-center gap-1">
