@@ -23,7 +23,24 @@ export async function GET() {
   }
 
   const adapter = getAdapter();
+  const catalog = process.env.DATABRICKS_CATALOG ?? "nexora";
+  const schema = process.env.DATABRICKS_SCHEMA ?? "finance";
   const results: { table: string; status: "created" | "error"; error?: string }[] = [];
+
+  // Ensure catalog and schema exist before creating tables
+  try {
+    await adapter.query(`CREATE CATALOG IF NOT EXISTS \`${catalog}\``);
+  } catch {
+    // Some workspace configurations don't allow CREATE CATALOG — ignore if it already exists
+  }
+  try {
+    await adapter.query(`CREATE SCHEMA IF NOT EXISTS \`${catalog}\`.\`${schema}\``);
+  } catch (err) {
+    return NextResponse.json(
+      { mode: "databricks", success: false, message: `Failed to create schema ${catalog}.${schema}: ${err instanceof Error ? err.message : err}` },
+      { status: 500 }
+    );
+  }
 
   for (const { name, sql } of ALL_DDL) {
     try {
