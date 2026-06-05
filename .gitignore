@@ -37,3 +37,6 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local SQLite database (used as Databricks fallback in dev)
+data/nexora-local.sqlite

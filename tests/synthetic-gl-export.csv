@@ -1,0 +1,13 @@
+Date,Cost Center,Cost Center Name,Category,Business Unit,Amount,Budget Amount,Vendor,Description
+2026-06-01,CC-501,AWS Production,Cloud,Cloud Engineering,445000,380000,Amazon Web Services,AWS EC2 June production scaling
+2026-06-01,CC-503,GCP AI/ML Workloads,Cloud,Cloud Engineering,162000,120000,Google Cloud Platform,Vertex AI June spend
+2026-06-01,CC-201,Cybersecurity Ops,Software,Security,158000,145000,CrowdStrike,EDR platform June
+2026-06-01,CC-401,Data Platform,Cloud,Data & Analytics,310000,260000,Snowflake,Snowflake June compute
+2026-06-01,CC-101,Network & Telecom,Telecom,Infrastructure,217000,210000,Cisco,Network services June
+2026-06-01,CC-601,Help Desk & Support,Labor,IT Operations,168000,165000,Internal,Help desk labor June
+2026-06-01,CC-301,ERP & Finance Systems,Software,Applications,185000,175000,SAP,SAP licenses June
+2026-06-01,CC-701,EA & Strategy,Professional Services,Enterprise Architecture,145000,130000,Accenture,EA consulting June
+2026-06-01,CC-502,Azure Dev/Test,Cloud,Cloud Engineering,119000,95000,Microsoft,Azure dev/test June
+2026-06-01,CC-202,Identity & Access Mgmt,Software,Security,96000,88000,Okta,Okta licenses June
+2026-06-01,CC-103,Compute & Storage,Hardware,Infrastructure,360000,320000,Dell,Storage refresh June
+2026-06-01,CC-402,BI & Reporting,Software,Data & Analytics,84000,78000,Tableau,BI licenses June

@@ -5,13 +5,12 @@ import SpendTrendChart from "@/components/charts/SpendTrendChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import ExecutiveSummaryBox from "@/components/dashboard/ExecutiveSummaryBox";
 import StatsBanner from "@/components/dashboard/StatsBanner";
+// Cloud-by-provider chart still uses static data — provider breakdown
+// is not captured in fact_transactions without a separate cloud spend table.
 import {
   getTotalCloudSpendByMonth, getCloudByProvider,
-  getTotalCloudYTD, getTotalCloudBudgetYTD,
 } from "@/data/cloudSpend";
-import { getYTDActual, getYTDBudget } from "@/data/actuals";
-import { getTotalContractorYTDSpend } from "@/data/externalLabor";
-import { getHeadcountSummary } from "@/data/headcount";
+import { getYTDSummary, getHCSummary, getContractors } from "@/lib/queries";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -28,21 +27,26 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
   );
 }
 
-export default function CIOPage() {
+export default async function CIOPage() {
   const cloudByMonth   = getTotalCloudSpendByMonth();
   const cloudProviders = getCloudByProvider();
-  const totalCloud     = getTotalCloudYTD();
-  const cloudBudget    = getTotalCloudBudgetYTD();
-  const totalIT        = getYTDActual();
-  const itBudget       = getYTDBudget();
-  const hc             = getHeadcountSummary();
-  const cloudPct       = totalCloud / totalIT;
+  const [ytd, hc, allContractors] = await Promise.all([
+    getYTDSummary(),
+    getHCSummary(),
+    getContractors(),
+  ]);
+  const totalIT    = ytd.actual;
+  const itBudget   = ytd.budget;
+  const totalCloud = cloudProviders.reduce((s, p) => s + p.ytdSpend, 0);
+  const cloudBudget = cloudProviders.reduce((s, p) => s + p.ytdBudget, 0);
+  const cloudPct   = totalIT > 0 ? totalCloud / totalIT : 0;
+  const contractorYTD = allContractors.reduce((s, c) => s + c.ytdSpend, 0);
 
   const kpis: KPI[] = [
     { label: "Total IT Spend YTD",  value: totalIT,    budget: itBudget,    prior: itBudget * 0.94,   format: "currency", trend: "up",   trendPositive: false },
     { label: "Cloud Spend YTD",     value: totalCloud, budget: cloudBudget, prior: cloudBudget * 0.9, format: "currency", trend: "up",   trendPositive: false },
     { label: "Cloud % of IT Spend", value: cloudPct,   budget: 0.40,        prior: 0.38,              format: "percent",  trend: "up",   trendPositive: false },
-    { label: "HC Fill Rate",        value: hc.filled / hc.total, budget: 0.90, prior: (hc.filled - 1) / hc.total, format: "percent", trend: "up", trendPositive: true },
+    { label: "HC Fill Rate",        value: hc.fillRate, budget: 0.90, prior: hc.total > 0 ? (hc.filled - 1) / hc.total : 0, format: "percent", trend: "up", trendPositive: true },
   ];
 
   const cloudTrendData = cloudByMonth.map(m => ({
@@ -59,12 +63,12 @@ export default function CIOPage() {
   }));
 
   const investmentBreakdown = [
-    { label: "Cloud Infrastructure", value: totalCloud,                       pct: cloudPct,                              color: "bg-indigo-500" },
-    { label: "Labor (FTE)",          value: totalIT * 0.28,                   pct: 0.28,                                  color: "bg-emerald-500" },
-    { label: "External Labor",       value: getTotalContractorYTDSpend(),     pct: getTotalContractorYTDSpend() / totalIT, color: "bg-amber-500" },
-    { label: "Software & SaaS",      value: totalIT * 0.18,                   pct: 0.18,                                  color: "bg-blue-500"   },
-    { label: "Professional Services",value: totalIT * 0.09,                   pct: 0.09,                                  color: "bg-purple-500" },
-    { label: "Hardware & Facilities",value: totalIT * 0.06,                   pct: 0.06,                                  color: "bg-slate-400"  },
+    { label: "Cloud Infrastructure", value: totalCloud,    pct: cloudPct,                                             color: "bg-indigo-500" },
+    { label: "Labor (FTE)",          value: totalIT * 0.28, pct: 0.28,                                                  color: "bg-emerald-500" },
+    { label: "External Labor",       value: contractorYTD,  pct: totalIT > 0 ? contractorYTD / totalIT : 0,            color: "bg-amber-500" },
+    { label: "Software & SaaS",      value: totalIT * 0.18, pct: 0.18,                                                  color: "bg-blue-500"   },
+    { label: "Professional Services",value: totalIT * 0.09, pct: 0.09,                                                  color: "bg-purple-500" },
+    { label: "Hardware & Facilities",value: totalIT * 0.06, pct: 0.06,                                                  color: "bg-slate-400"  },
   ];
 
   return (

@@ -4,9 +4,8 @@ import KPICard from "@/components/dashboard/KPICard";
 import HeadcountChart from "@/components/charts/HeadcountChart";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import {
-  headcount, getHeadcountSummary, getOpenReqs,
-  getHCByBusinessUnit, getTotalAnnualSalaryBudget,
-} from "@/data/headcount";
+  getHeadcount, getHCSummary, getOpenReqs, getHCByBusinessUnit,
+} from "@/lib/queries";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -23,12 +22,15 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
   );
 }
 
-export default function HeadcountPage() {
-  const summary      = getHeadcountSummary();
-  const openReqs     = getOpenReqs();
-  const byBU         = getHCByBusinessUnit();
-  const salaryBudget = getTotalAnnualSalaryBudget();
-  const fillRate     = summary.filled / summary.total;
+export default async function HeadcountPage() {
+  const [headcount, summary, openReqs, byBU] = await Promise.all([
+    getHeadcount(),
+    getHCSummary(),
+    getOpenReqs(),
+    getHCByBusinessUnit(),
+  ]);
+  const salaryBudget = summary.totalAnnualSalaryBudget;
+  const fillRate     = summary.fillRate;
 
   const kpis: KPI[] = [
     { label: "Filled Positions",     value: summary.filled,  budget: summary.total,       prior: summary.filled - 1,                   format: "headcount", trend: "flat", trendPositive: true  },

@@ -4,7 +4,7 @@ import BudgetVsActualChart from "@/components/charts/BudgetVsActualChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import KPICard from "@/components/dashboard/KPICard";
-import { getMonthlyTotals, getByBusinessUnit, getByCategory, actuals } from "@/data/actuals";
+import { getMonthlyTotals, getByBusinessUnit, getByCategory, getActualsByPeriod } from "@/lib/queries";
 import { formatCurrency } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -21,21 +21,26 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
   );
 }
 
-export default function FPAPage() {
-  const monthly   = getMonthlyTotals();
-  const byBU      = getByBusinessUnit();
-  const byCat     = getByCategory();
+export default async function FPAPage() {
+  const [monthly, byBU, byCat, mayActuals] = await Promise.all([
+    getMonthlyTotals(),
+    getByBusinessUnit(),
+    getByCategory(),
+    getActualsByPeriod("2026-05"),
+  ]);
+
   const ytdActual = byBU.reduce((s, b) => s + b.actual, 0);
   const ytdBudget = byBU.reduce((s, b) => s + b.budget, 0);
   const ytdVar    = ytdActual - ytdBudget;
   const ytdVarPct = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
-  const may       = monthly[monthly.length - 1];
+  const may       = monthly[monthly.length - 1] ?? { actual: 0, budget: 0 };
+  const prevMonth = monthly[monthly.length - 2] ?? { actual: 0, budget: 0 };
   const mayVar    = may.actual - may.budget;
 
   const kpis: KPI[] = [
     { label: "YTD Actual Spend",  value: ytdActual, budget: ytdBudget, prior: ytdBudget * 0.94, format: "currency", trend: "up", trendPositive: false },
     { label: "YTD Variance",      value: ytdVar,    budget: 0, prior: ytdVar * 0.8, format: "currency", trend: "up", trendPositive: false },
-    { label: "May 2026 Variance", value: mayVar,    budget: 0, prior: monthly[3].actual - monthly[3].budget, format: "currency", trend: "up", trendPositive: false },
+    { label: "May 2026 Variance", value: mayVar,    budget: 0, prior: prevMonth.actual - prevMonth.budget, format: "currency", trend: "up", trendPositive: false },
     { label: "Variance %",        value: ytdVarPct, budget: 0, prior: 0.03, format: "percent", trend: "up", trendPositive: false },
   ];
 
@@ -62,7 +67,7 @@ export default function FPAPage() {
     highlight:   false,
   })).sort((a, b) => b.variance - a.variance);
 
-  const mayActuals = actuals.filter(r => r.month === "May").sort((a, b) => b.variance - a.variance);
+  const sortedMay = [...mayActuals].sort((a, b) => b.variance - a.variance);
 
   return (
     <PageWrapper
@@ -158,7 +163,7 @@ export default function FPAPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {mayActuals.map((r, i) => (
+                  {sortedMay.map((r, i) => (
                     <tr key={i} className={clsx(
                       "tbl-row",
                       r.variancePct > 0.05 ? "bg-red-50/30" : ""

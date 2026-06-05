@@ -10,9 +10,10 @@ import VarianceDrivers from "@/components/dashboard/VarianceDrivers";
 import type { VarianceDriver } from "@/components/dashboard/VarianceDrivers";
 import { buildDashboardKPIs } from "@/lib/metrics";
 import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine";
-import { getMonthlyTotals, getByBusinessUnit } from "@/data/actuals";
-import { getOverBudgetContractors } from "@/data/externalLabor";
-import { getOpenReqs } from "@/data/headcount";
+import {
+  getMonthlyTotals, getByBusinessUnit,
+  getOverBudgetContractors, getOpenReqs,
+} from "@/lib/queries";
 import { getTotalCloudYTD, getTotalCloudBudgetYTD } from "@/data/cloudSpend";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
@@ -54,12 +55,16 @@ function SectionHeader({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [monthly, byBU, overConts, allOpenReqs] = await Promise.all([
+    getMonthlyTotals(),
+    getByBusinessUnit(),
+    getOverBudgetContractors(),
+    getOpenReqs(),
+  ]);
   const kpis    = buildDashboardKPIs();
   const risks   = generateRiskFlags();
   const actions = generateRecommendedActions();
-  const monthly = getMonthlyTotals();
-  const byBU    = getByBusinessUnit();
 
   // Risk counts for section label
   const critCount = risks.filter(r => r.severity === "critical").length;
@@ -69,12 +74,11 @@ export default function DashboardPage() {
   // Variance driver data
   const sortedBUs       = [...byBU].sort((a, b) => b.variance - a.variance);
   const overBudgetBUs   = sortedBUs.filter(b => b.variance > 0);
-  const overConts       = getOverBudgetContractors();
   const contExcess      = overConts.reduce((s, c) => s + (c.ytdSpend - c.budget), 0);
   const cloudActual     = getTotalCloudYTD();
   const cloudBudget     = getTotalCloudBudgetYTD();
   const cloudVar        = cloudActual - cloudBudget;
-  const openReqs        = getOpenReqs().filter(h => h.status === "Open");
+  const openReqs        = allOpenReqs.filter(h => h.status === "Open");
   const topBU           = overBudgetBUs[0];
 
   const drivers: VarianceDriver[] = [

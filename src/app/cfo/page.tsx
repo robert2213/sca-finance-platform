@@ -6,7 +6,7 @@ import RecommendedActions from "@/components/dashboard/RecommendedActions";
 import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine";
-import { getYTDActual, getYTDBudget, getYTDVariance } from "@/data/actuals";
+import { getYTDSummary } from "@/lib/queries";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 
@@ -22,13 +22,11 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
   );
 }
 
-export default function CFOPage() {
-  const risks      = generateRiskFlags();
-  const actions    = generateRecommendedActions();
-  const ytdActual  = getYTDActual();
-  const ytdBudget  = getYTDBudget();
-  const ytdVar     = getYTDVariance();
-  const ytdVarPct  = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
+export default async function CFOPage() {
+  const risks   = generateRiskFlags();
+  const actions = generateRecommendedActions();
+  const ytd     = await getYTDSummary();
+  const { actual: ytdActual, budget: ytdBudget, variance: ytdVar, variancePct: ytdVarPct } = ytd;
 
   const kpis: KPI[] = [
     {

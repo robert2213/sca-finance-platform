@@ -1,0 +1,11 @@
+Date,Cost Center,Cost Center Name,Category,Business Unit,Amount,Budget Amount,Vendor,Description
+2026-01-15,CC-101,Network & Telecom,Telecom,Infrastructure,214500,210000,Cisco,Monthly network services
+2026-01-20,CC-201,Cybersecurity Ops,Software,Security,147000,145000,Palo Alto,Security licenses Q1
+2026-02-10,CC-401,Data Platform,Cloud,Data & Analytics,262000,260000,Snowflake,Snowflake compute Jan-Feb
+2026-02-15,CC-501,AWS Production,Cloud,Cloud Engineering,385000,380000,Amazon Web Services,AWS production Feb
+2026-03-01,CC-301,ERP & Finance Systems,Software,Applications,178000,175000,SAP,SAP license renewal
+2026-03-20,CC-103,Compute & Storage,Hardware,Infrastructure,318000,320000,Dell,Storage array maintenance
+2026-04-05,CC-502,Azure Dev/Test,Cloud,Cloud Engineering,106000,95000,Microsoft,Azure overage March-April
+2026-04-12,CC-201,Cybersecurity Ops,Software,Security,152000,145000,CrowdStrike,EDR platform expansion
+2026-05-01,CC-503,GCP AI/ML Workloads,Cloud,Cloud Engineering,144000,120000,Google Cloud Platform,Vertex AI spend May
+2026-05-15,CC-701,EA & Strategy,Professional Services,Enterprise Architecture,140000,130000,Accenture,EA consulting retainer
