@@ -690,3 +690,46 @@ There are no automated tests in the current codebase. Before adding features, ve
 | Add a new color to the design system | `tailwind.config.ts` → `nexora` scale |
 | Change agent suggested prompts | `src/agents/registry.ts` → `suggestedQuestions` |
 | Add a new page | `src/app/[route]/page.tsx` + add to sidebar nav |
+
+---
+
+## Session Update — June 6, 2026
+
+### Added: System Architecture Page
+
+Route: `/architecture`  
+Nav: **System Architecture** (sidebar, positioned between CIO Briefing and Data Ingestion)  
+Icon: `Network` (Lucide React)
+
+**What was built:**
+
+- **6-stage business-oriented flow diagram** (Financial Data Sources → Data Integration → Financial Intelligence Layer → Nexora Analytics Platform → AI Finance Agents → Executive Outcomes)
+- **Animated flow connectors** between each stage — CSS `@keyframes flowSlug` gradient slug moving downward, pulsing label pill with data-in-motion label (e.g. "Raw financial data", "Validated, structured data")
+- **Three item rendering modes** — chips (stages 1–4), agent cards with emoji avatars (stage 5), outcome rows with checkmark icon (stage 6)
+- **"Powered by Databricks" badge** — Stage 2 only, positioned as trust signal
+- **Business Impact section** — 4-card 2×2 grid (Reduce Manual Reporting, Improve Visibility, Accelerate Analysis, Support Better Decisions)
+- **Finance Leadership persona section** — 3-column (CFO, FP&A Directors, Finance Business Partners)
+- **Scroll reveal** — `IntersectionObserver` adds `.arch-visible` to each `.arch-reveal` element; CSS transition `opacity 0→1 + translateY 14px→0` with staggered `transitionDelay` per stage
+- **Fully responsive** — mobile stacks cleanly; agent cards shift from 2-col to 3-col at `sm`; personas shift from 1-col to 3-col at `md`
+- **Dark mode classes** throughout — `dark:bg-slate-800`, `dark:text-slate-*`, `dark:border-slate-*`, `dark:nexora-*` variants
+- **CSS-only animations** — no external libraries; `arch-flow-slug` and `arch-pulse` in `globals.css`
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/app/architecture/page.tsx` | New — full page (client component) |
+| `src/components/layout/Sidebar.tsx` | Added `Network` import + `/architecture` nav entry |
+| `src/app/globals.css` | Added `@keyframes flowSlug`, `.arch-flow-slug`, `.arch-reveal`, `.arch-reveal.arch-visible` |
+
+**Design decisions:**
+
+- Databricks referenced exactly once (Stage 2) as a trust signal, not a technical detail
+- All language is executive/business — no ETL, SQL, endpoint, webhook, or API terminology
+- Audience: CFO, CIO, Finance Directors, consulting clients
+- Left accent stripe on each stage card maintains nexora indigo brand
+- Stage 6 uses emerald outcome styling to visually signal value delivery
+
+**Build result:** `/architecture` builds as a static page (4.31 kB, 103 kB first load JS) — all 25 routes pass.
+
+**Next session:** Pick up at Executive Commentary Agent build

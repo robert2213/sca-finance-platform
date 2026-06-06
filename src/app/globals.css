@@ -169,3 +169,30 @@
 .glow-red {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
 }
+
+/* ── Architecture page — flow connector animation ────────────────────────────── */
+@keyframes flowSlug {
+  0%   { top: -80%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 0.8; }
+  100% { top: 180%; opacity: 0; }
+}
+.arch-flow-slug {
+  position: absolute;
+  inset-x: 0;
+  height: 60%;
+  border-radius: 9999px;
+  background: linear-gradient(to bottom, transparent, #6366f1, transparent);
+  animation: flowSlug 2s ease-in-out infinite;
+}
+
+/* ── Architecture page — scroll reveal ──────────────────────────────────────── */
+.arch-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+}
+.arch-reveal.arch-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
