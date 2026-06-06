@@ -5,7 +5,10 @@
 
 import { getAdapter } from "@/lib/databricks";
 import type { LocalAdapter } from "@/lib/adapters/local-adapter";
-import type { FactTransaction, VendorRecord, QualityLogEntry } from "./types";
+import type {
+  FactTransaction, VendorRecord, QualityLogEntry,
+  HeadcountRecord, ContractorRecord, CostCenterRecord, PeriodRecord,
+} from "./types";
 
 type Adapter = ReturnType<typeof getAdapter>;
 
@@ -201,6 +204,239 @@ export async function writeQualityLog(
       `INSERT INTO data_quality_log (logged_at, source_file, table_name, action, detail, row_count)
        VALUES ${values}`
     ).catch(() => { /* quality log failures are non-fatal */ });
+  }
+}
+
+// ─── dim_headcount ────────────────────────────────────────────────────────────
+
+export async function writeHeadcount(
+  records: HeadcountRecord[]
+): Promise<{ written: number; errors: string[] }> {
+  if (!records.length) return { written: 0, errors: [] };
+
+  const adapter = getAdapter();
+  const errors: string[] = [];
+
+  if (isLocalAdapter(adapter)) {
+    await adapter.insertRows(
+      "dim_headcount",
+      records.map((h) => ({
+        position_id:   h.position_id,
+        title:         h.title,
+        business_unit: h.business_unit,
+        level:         h.level,
+        status:        h.status,
+        location:      h.location ?? null,
+        open_date:     h.open_date ?? null,
+        fill_date:     h.fill_date ?? null,
+        annual_salary: h.annual_salary,
+        is_backfill:   h.is_backfill ? 1 : 0,
+      }))
+    );
+    return { written: records.length, errors };
+  }
+
+  const CHUNK = 200;
+  let written = 0;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    const values = chunk
+      .map((h) =>
+        `('${esc(h.position_id)}','${esc(h.title)}','${esc(h.business_unit)}',` +
+        `'${esc(h.level)}','${esc(h.status)}',` +
+        `${h.location ? `'${esc(h.location)}'` : "NULL"},` +
+        `${h.open_date ? `'${h.open_date}'` : "NULL"},` +
+        `${h.fill_date ? `'${h.fill_date}'` : "NULL"},` +
+        `${h.annual_salary},${h.is_backfill ? "true" : "false"})`
+      )
+      .join(",\n");
+
+    const sql = `
+      MERGE INTO dim_headcount AS target
+      USING (
+        SELECT * FROM VALUES ${values}
+        AS src(position_id, title, business_unit, level, status,
+               location, open_date, fill_date, annual_salary, is_backfill)
+      ) AS source ON target.position_id = source.position_id
+      WHEN MATCHED THEN UPDATE SET *
+      WHEN NOT MATCHED THEN INSERT *
+    `;
+    try {
+      await adapter.query(sql);
+      written += chunk.length;
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : `Chunk ${i} failed`);
+    }
+  }
+  return { written, errors };
+}
+
+// ─── dim_contractor ───────────────────────────────────────────────────────────
+
+export async function writeContractors(
+  records: ContractorRecord[]
+): Promise<{ written: number; errors: string[] }> {
+  if (!records.length) return { written: 0, errors: [] };
+
+  const adapter = getAdapter();
+  const errors: string[] = [];
+
+  if (isLocalAdapter(adapter)) {
+    await adapter.insertRows(
+      "dim_contractor",
+      records.map((c) => ({
+        contractor_id:    c.contractor_id,
+        contractor_name:  c.contractor_name,
+        role:             c.role,
+        vendor:           c.vendor,
+        cost_center_id:   c.cost_center_id,
+        cost_center_name: c.cost_center_name ?? null,
+        business_unit:    c.business_unit,
+        monthly_rate:     c.monthly_rate,
+        ytd_spend:        c.ytd_spend,
+        budget:           c.budget,
+        start_date:       c.start_date ?? null,
+        end_date:         c.end_date ?? null,
+        status:           c.status,
+      }))
+    );
+    return { written: records.length, errors };
+  }
+
+  const CHUNK = 200;
+  let written = 0;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    const values = chunk
+      .map((c) =>
+        `('${esc(c.contractor_id)}','${esc(c.contractor_name)}','${esc(c.role)}',` +
+        `'${esc(c.vendor)}','${esc(c.cost_center_id)}',` +
+        `${c.cost_center_name ? `'${esc(c.cost_center_name)}'` : "NULL"},` +
+        `'${esc(c.business_unit)}',${c.monthly_rate},${c.ytd_spend},${c.budget},` +
+        `${c.start_date ? `'${c.start_date}'` : "NULL"},` +
+        `${c.end_date ? `'${c.end_date}'` : "NULL"},` +
+        `'${esc(c.status)}')`
+      )
+      .join(",\n");
+
+    const sql = `
+      MERGE INTO dim_contractor AS target
+      USING (
+        SELECT * FROM VALUES ${values}
+        AS src(contractor_id, contractor_name, role, vendor, cost_center_id,
+               cost_center_name, business_unit, monthly_rate, ytd_spend, budget,
+               start_date, end_date, status)
+      ) AS source ON target.contractor_id = source.contractor_id
+      WHEN MATCHED THEN UPDATE SET *
+      WHEN NOT MATCHED THEN INSERT *
+    `;
+    try {
+      await adapter.query(sql);
+      written += chunk.length;
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : `Chunk ${i} failed`);
+    }
+  }
+  return { written, errors };
+}
+
+// ─── dim_cost_center ──────────────────────────────────────────────────────────
+
+export async function writeCostCenters(
+  records: CostCenterRecord[]
+): Promise<{ written: number; errors: string[] }> {
+  if (!records.length) return { written: 0, errors: [] };
+
+  const adapter = getAdapter();
+  const errors: string[] = [];
+
+  if (isLocalAdapter(adapter)) {
+    await adapter.insertRows(
+      "dim_cost_center",
+      records.map((c) => ({
+        cost_center_id:   c.cost_center_id,
+        cost_center_name: c.cost_center_name,
+        department:       c.department,
+        owner:            c.owner ?? null,
+        budget_owner:     c.budget_owner ?? null,
+      }))
+    );
+    return { written: records.length, errors };
+  }
+
+  const values = records
+    .map((c) =>
+      `('${esc(c.cost_center_id)}','${esc(c.cost_center_name)}','${esc(c.department)}',` +
+      `${c.owner ? `'${esc(c.owner)}'` : "NULL"},` +
+      `${c.budget_owner ? `'${esc(c.budget_owner)}'` : "NULL"})`
+    )
+    .join(",\n");
+
+  const sql = `
+    MERGE INTO dim_cost_center AS target
+    USING (
+      SELECT * FROM VALUES ${values}
+      AS src(cost_center_id, cost_center_name, department, owner, budget_owner)
+    ) AS source ON target.cost_center_id = source.cost_center_id
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+  `;
+  try {
+    await adapter.query(sql);
+    return { written: records.length, errors };
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : "Write failed");
+    return { written: 0, errors };
+  }
+}
+
+// ─── dim_period ───────────────────────────────────────────────────────────────
+
+export async function writePeriods(
+  records: PeriodRecord[]
+): Promise<{ written: number; errors: string[] }> {
+  if (!records.length) return { written: 0, errors: [] };
+
+  const adapter = getAdapter();
+  const errors: string[] = [];
+
+  if (isLocalAdapter(adapter)) {
+    await adapter.insertRows(
+      "dim_period",
+      records.map((p) => ({
+        period_id:  p.period_id,
+        year:       p.year,
+        month:      p.month,
+        month_name: p.month_name,
+        quarter:    p.quarter,
+        is_closed:  p.is_closed ? 1 : 0,
+      }))
+    );
+    return { written: records.length, errors };
+  }
+
+  const values = records
+    .map((p) =>
+      `('${esc(p.period_id)}',${p.year},${p.month},'${esc(p.month_name)}',` +
+      `${p.quarter},${p.is_closed ? "true" : "false"})`
+    )
+    .join(",\n");
+
+  const sql = `
+    MERGE INTO dim_period AS target
+    USING (
+      SELECT * FROM VALUES ${values}
+      AS src(period_id, year, month, month_name, quarter, is_closed)
+    ) AS source ON target.period_id = source.period_id
+    WHEN MATCHED THEN UPDATE SET *
+    WHEN NOT MATCHED THEN INSERT *
+  `;
+  try {
+    await adapter.query(sql);
+    return { written: records.length, errors };
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : "Write failed");
+    return { written: 0, errors };
   }
 }
 

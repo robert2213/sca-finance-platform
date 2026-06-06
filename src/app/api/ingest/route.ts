@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCsv } from "@/lib/ingestion/csv-parser";
 import { parseExcel } from "@/lib/ingestion/excel-parser";
-import { mapToFactTransactions, mapToVendors } from "@/lib/ingestion/field-mapper";
+import {
+  mapToFactTransactions, mapToVendors,
+  mapToHeadcount, mapToContractors, mapToCostCenters, mapToPeriods,
+} from "@/lib/ingestion/field-mapper";
 import { cleanTransactions, cleanVendors } from "@/lib/ingestion/cleaner";
-import { writeTransactions, writeVendors, writeQualityLog } from "@/lib/ingestion/writer";
+import {
+  writeTransactions, writeVendors, writeQualityLog,
+  writeHeadcount, writeContractors, writeCostCenters, writePeriods,
+} from "@/lib/ingestion/writer";
 import type { IngestionResult, SourceSystem } from "@/lib/ingestion/types";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -36,7 +42,8 @@ export async function POST(request: NextRequest) {
   }
 
   const validSources: SourceSystem[] = [
-    "gl-export", "budget-export", "payroll", "vendors", "quickbooks", "stripe", "other",
+    "gl-export", "budget-export", "payroll", "vendors", "quickbooks", "stripe",
+    "headcount", "contractors", "cost-centers", "periods", "other",
   ];
   if (!validSources.includes(sourceSystem)) {
     return NextResponse.json(
@@ -107,8 +114,7 @@ export async function POST(request: NextRequest) {
     rowsFlagged = qualityLog.filter((e) =>
       e.action === "anomaly_flagged" || e.action === "negative_flagged"
     ).length;
-    const skippedByClean = mapped.length - cleaned.length;
-    rowsSkipped += skippedByClean;
+    rowsSkipped += mapped.length - cleaned.length;
 
     const { written, errors: writeErrors } = await writeVendors(cleaned);
     rowsProcessed = written;
@@ -118,14 +124,64 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json<IngestionResult>({
       success: writeErrors.length === 0,
-      sourceSystem,
-      fileName,
-      rowsReceived,
-      rowsProcessed,
-      rowsFlagged,
-      rowsSkipped,
-      qualityLog,
-      errors,
+      sourceSystem, fileName, rowsReceived, rowsProcessed,
+      rowsFlagged, rowsSkipped, qualityLog, errors,
+      durationMs: Date.now() - start,
+    });
+  }
+
+  if (sourceSystem === "headcount") {
+    const { headcount: mapped, unmapped } = mapToHeadcount(parsed.rows);
+    rowsSkipped += unmapped.length;
+    const { written, errors: writeErrors } = await writeHeadcount(mapped);
+    rowsProcessed = written;
+    errors.push(...writeErrors);
+    return NextResponse.json<IngestionResult>({
+      success: writeErrors.length === 0,
+      sourceSystem, fileName, rowsReceived, rowsProcessed,
+      rowsFlagged: 0, rowsSkipped, qualityLog: [], errors,
+      durationMs: Date.now() - start,
+    });
+  }
+
+  if (sourceSystem === "contractors") {
+    const { contractors: mapped, unmapped } = mapToContractors(parsed.rows);
+    rowsSkipped += unmapped.length;
+    const { written, errors: writeErrors } = await writeContractors(mapped);
+    rowsProcessed = written;
+    errors.push(...writeErrors);
+    return NextResponse.json<IngestionResult>({
+      success: writeErrors.length === 0,
+      sourceSystem, fileName, rowsReceived, rowsProcessed,
+      rowsFlagged: 0, rowsSkipped, qualityLog: [], errors,
+      durationMs: Date.now() - start,
+    });
+  }
+
+  if (sourceSystem === "cost-centers") {
+    const { costCenters: mapped, unmapped } = mapToCostCenters(parsed.rows);
+    rowsSkipped += unmapped.length;
+    const { written, errors: writeErrors } = await writeCostCenters(mapped);
+    rowsProcessed = written;
+    errors.push(...writeErrors);
+    return NextResponse.json<IngestionResult>({
+      success: writeErrors.length === 0,
+      sourceSystem, fileName, rowsReceived, rowsProcessed,
+      rowsFlagged: 0, rowsSkipped, qualityLog: [], errors,
+      durationMs: Date.now() - start,
+    });
+  }
+
+  if (sourceSystem === "periods") {
+    const { periods: mapped, unmapped } = mapToPeriods(parsed.rows);
+    rowsSkipped += unmapped.length;
+    const { written, errors: writeErrors } = await writePeriods(mapped);
+    rowsProcessed = written;
+    errors.push(...writeErrors);
+    return NextResponse.json<IngestionResult>({
+      success: writeErrors.length === 0,
+      sourceSystem, fileName, rowsReceived, rowsProcessed,
+      rowsFlagged: 0, rowsSkipped, qualityLog: [], errors,
       durationMs: Date.now() - start,
     });
   }
@@ -172,7 +228,8 @@ export async function GET() {
     endpoint: "POST /api/ingest",
     acceptedSources: [
       "gl-export", "budget-export", "payroll", "vendors",
-      "quickbooks", "stripe", "other",
+      "quickbooks", "stripe", "headcount", "contractors",
+      "cost-centers", "periods", "other",
     ],
     acceptedFileTypes: ["csv", "xlsx", "xls"],
     maxFileSizeMB: 50,

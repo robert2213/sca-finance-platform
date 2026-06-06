@@ -7,6 +7,10 @@ export type SourceSystem =
   | "vendors"
   | "quickbooks"
   | "stripe"
+  | "headcount"
+  | "contractors"
+  | "cost-centers"
+  | "periods"
   | "other";
 
 export type FileType = "csv" | "xlsx" | "xls";
@@ -30,6 +34,56 @@ export interface FactTransaction {
   amount_forecast: number;
   transaction_type: "actual" | "budget" | "forecast";
   source_system: string;
+}
+
+/** A mapped dim_headcount record. */
+export interface HeadcountRecord {
+  position_id: string;
+  title: string;
+  business_unit: string;
+  level: string;
+  status: string;
+  location: string | null;
+  open_date: string | null;
+  fill_date: string | null;
+  annual_salary: number;
+  is_backfill: boolean;
+}
+
+/** A mapped dim_contractor record. */
+export interface ContractorRecord {
+  contractor_id: string;
+  contractor_name: string;
+  role: string;
+  vendor: string;
+  cost_center_id: string;
+  cost_center_name: string | null;
+  business_unit: string;
+  monthly_rate: number;
+  ytd_spend: number;
+  budget: number;
+  start_date: string | null;
+  end_date: string | null;
+  status: string;
+}
+
+/** A mapped dim_cost_center record. */
+export interface CostCenterRecord {
+  cost_center_id: string;
+  cost_center_name: string;
+  department: string;
+  owner: string | null;
+  budget_owner: string | null;
+}
+
+/** A mapped dim_period record. */
+export interface PeriodRecord {
+  period_id: string;
+  year: number;
+  month: number;
+  month_name: string;
+  quarter: number;
+  is_closed: boolean;
 }
 
 /** A mapped dim_vendor record. */

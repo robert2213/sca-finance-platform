@@ -21,7 +21,7 @@ export default function DataIngestionPage() {
   return (
     <PageWrapper
       title="Data Ingestion"
-      subtitle="Upload CSV or Excel files to populate Databricks Delta tables"
+      subtitle="Connect a source, upload an export, or drop in your own file"
       badge="Pipeline"
     >
       <StatsBanner />
@@ -46,8 +46,8 @@ export default function DataIngestionPage() {
 
       <section>
         <SectionHeader
-          label="Upload & Ingest Financial Data"
-          sub="CSV, Excel — GL exports, payroll, vendors, QuickBooks, Stripe"
+          label="Ingest Financial Data"
+          sub="Connected source · Export file upload · Manual upload"
         />
         <DataIngestionClient />
       </section>

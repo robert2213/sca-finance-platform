@@ -6,19 +6,99 @@ import clsx from "clsx";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle,
   XCircle, RefreshCw, Database, ChevronRight, X,
+  Plug, FolderUp, FileSpreadsheet, ChevronLeft,
+  Zap, BookOpen, ShoppingCart, Building2, Globe, Users,
 } from "lucide-react";
 import type { IngestionResult, SourceSystem } from "@/lib/ingestion/types";
 
-// ─── Source system config ─────────────────────────────────────────────────────
+// ─── Taxonomy ─────────────────────────────────────────────────────────────────
 
-const SOURCE_SYSTEMS: { id: SourceSystem; label: string; description: string; icon: string }[] = [
-  { id: "gl-export",     label: "GL Export",      description: "General ledger actuals export (CSV/Excel)", icon: "📊" },
-  { id: "budget-export", label: "Budget Export",   description: "Annual plan or revised budget data",        icon: "📋" },
-  { id: "payroll",       label: "Payroll",         description: "Payroll or labor cost export",              icon: "👥" },
-  { id: "vendors",       label: "Vendor File",     description: "Vendor contracts and spend data",           icon: "🤝" },
-  { id: "quickbooks",    label: "QuickBooks",      description: "QuickBooks GL or P&L export",               icon: "📒" },
-  { id: "stripe",        label: "Stripe",          description: "Stripe billing or revenue export",          icon: "💳" },
-  { id: "other",         label: "Other",           description: "Any structured financial CSV or Excel",     icon: "📁" },
+type IngestionMethod = "connected" | "export" | "manual";
+
+type ExportSource = {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  sourceSystem: SourceSystem;
+  comingSoon?: boolean;
+};
+
+type DataType = {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  sourceSystem: SourceSystem;
+  example: string;
+};
+
+type ConnectedSource = {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+};
+
+const CONNECTED_SOURCES: ConnectedSource[] = [
+  { id: "stripe",     label: "Stripe",     description: "Pull billing & revenue events",    icon: <Zap className="w-5 h-5" /> },
+  { id: "quickbooks", label: "QuickBooks", description: "Sync GL, P&L, and AP/AR",          icon: <BookOpen className="w-5 h-5" /> },
+  { id: "square",     label: "Square",     description: "Import payment and sales data",     icon: <ShoppingCart className="w-5 h-5" /> },
+  { id: "sap",        label: "SAP",        description: "Connect to SAP ERP modules",        icon: <Building2 className="w-5 h-5" /> },
+  { id: "netsuite",   label: "NetSuite",   description: "Sync from NetSuite financials",     icon: <Globe className="w-5 h-5" /> },
+  { id: "salesforce", label: "Salesforce", description: "Pull CRM and revenue pipeline",     icon: <Users className="w-5 h-5" /> },
+];
+
+const EXPORT_SOURCES: ExportSource[] = [
+  { id: "stripe",     label: "Stripe",         description: "Stripe CSV billing export",           icon: <Zap className="w-4 h-4" />,          sourceSystem: "stripe" },
+  { id: "quickbooks", label: "QuickBooks",      description: "QuickBooks GL or P&L export",         icon: <BookOpen className="w-4 h-4" />,      sourceSystem: "quickbooks" },
+  { id: "square",     label: "Square",          description: "Square sales or payments export",     icon: <ShoppingCart className="w-4 h-4" />,  sourceSystem: "other" },
+  { id: "sap",        label: "SAP",             description: "SAP GL or cost center extract",       icon: <Building2 className="w-4 h-4" />,     sourceSystem: "gl-export" },
+  { id: "netsuite",   label: "NetSuite",        description: "NetSuite transaction or budget export",icon: <Globe className="w-4 h-4" />,         sourceSystem: "gl-export" },
+  { id: "other",      label: "Other System",    description: "Any structured financial export",     icon: <FileSpreadsheet className="w-4 h-4" />,sourceSystem: "other" },
+];
+
+const DATA_TYPES: DataType[] = [
+  {
+    id: "actuals",
+    label: "Actuals / Transactions",
+    description: "Real spend that has already occurred",
+    example: "Monthly GL export, invoice records, purchase history",
+    icon: <span className="text-lg">💸</span>,
+    sourceSystem: "gl-export",
+  },
+  {
+    id: "budget",
+    label: "Budget / Plan",
+    description: "Approved spending plan or revised forecast",
+    example: "Annual budget, quarterly reforecast",
+    icon: <span className="text-lg">📋</span>,
+    sourceSystem: "budget-export",
+  },
+  {
+    id: "vendors",
+    label: "Vendor Contracts",
+    description: "Vendor master with contract values and dates",
+    example: "Procurement roster, contract register",
+    icon: <span className="text-lg">🤝</span>,
+    sourceSystem: "vendors",
+  },
+  {
+    id: "headcount",
+    label: "Headcount / Workforce",
+    description: "Position roster — filled and open requisitions",
+    example: "HRIS export, org chart data, open req list",
+    icon: <span className="text-lg">👥</span>,
+    sourceSystem: "headcount",
+  },
+  {
+    id: "contractors",
+    label: "External Labor / Contractors",
+    description: "Contractor engagements and burn rates",
+    example: "Staffing agency roster, SOW tracker",
+    icon: <span className="text-lg">🧑‍💻</span>,
+    sourceSystem: "contractors",
+  },
 ];
 
 const ACTION_LABELS: Record<string, string> = {
@@ -43,48 +123,65 @@ const ACTION_COLORS: Record<string, string> = {
   missing_required_field:  "text-red-700 bg-red-50 border-red-200",
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const ACCEPTED_EXTENSIONS = ["csv", "xlsx", "xls"];
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function DataIngestionClient() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [dragging, setDragging]         = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [sourceSystem, setSourceSystem] = useState<SourceSystem>("gl-export");
-  const [uploading, setUploading]       = useState(false);
-  const [progress, setProgress]         = useState(0);
-  const [result, setResult]             = useState<IngestionResult | null>(null);
-  const [error, setError]               = useState<string | null>(null);
+  // Selection state
+  const [method,       setMethod]       = useState<IngestionMethod | null>(null);
+  const [exportSource, setExportSource] = useState<ExportSource | null>(null);
+  const [dataType,     setDataType]     = useState<DataType | null>(null);
 
-  // ── Drag-and-drop handlers ─────────────────────────────────────────────────
+  // Upload state
+  const [dragging,      setDragging]      = useState(false);
+  const [selectedFile,  setSelectedFile]  = useState<File | null>(null);
+  const [uploading,     setUploading]     = useState(false);
+  const [progress,      setProgress]      = useState(0);
+  const [result,        setResult]        = useState<IngestionResult | null>(null);
+  const [fileError,     setFileError]     = useState<string | null>(null);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(true);
-  }, []);
+  // Derive the sourceSystem from current selections
+  function getSourceSystem(): SourceSystem {
+    if (method === "export" && exportSource) return exportSource.sourceSystem;
+    if (method === "manual" && dataType)     return dataType.sourceSystem;
+    return "other";
+  }
 
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-  }, []);
+  // Derive a human-readable label for the current selection
+  function getSelectionLabel(): string {
+    if (method === "export" && exportSource) return exportSource.label;
+    if (method === "manual" && dataType)     return dataType.label;
+    return "Unknown";
+  }
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) acceptFile(file);
+  // Are we ready to show the file drop step?
+  const readyForFile =
+    (method === "export" && exportSource !== null) ||
+    (method === "manual" && dataType !== null);
+
+  // ── File handling ──────────────────────────────────────────────────────────
+
+  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(true); }, []);
+  const onDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(false); }, []);
+  const onDrop      = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) acceptFile(f);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function acceptFile(file: File) {
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!["csv", "xlsx", "xls"].includes(ext)) {
-      setError(`Unsupported file type ".${ext}". Please upload a CSV or Excel file.`);
+    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+      setFileError(`"${ext.toUpperCase()}" files aren't supported yet. Upload a CSV or Excel file.`);
       return;
     }
     setSelectedFile(file);
     setResult(null);
-    setError(null);
+    setFileError(null);
   }
 
   // ── Upload ─────────────────────────────────────────────────────────────────
@@ -94,9 +191,8 @@ export default function DataIngestionClient() {
     setUploading(true);
     setProgress(0);
     setResult(null);
-    setError(null);
+    setFileError(null);
 
-    // Simulate progress during upload (actual progress isn't available via fetch)
     const progressInterval = setInterval(() => {
       setProgress((p) => Math.min(p + 8, 85));
     }, 150);
@@ -104,232 +200,380 @@ export default function DataIngestionClient() {
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("sourceSystem", sourceSystem);
+      formData.append("sourceSystem", getSourceSystem());
 
-      const response = await fetch("/api/ingest", {
-        method: "POST",
-        body: formData,
-      });
-
+      const response = await fetch("/api/ingest", { method: "POST", body: formData });
       clearInterval(progressInterval);
       setProgress(100);
-
       const data: IngestionResult = await response.json();
       setResult(data);
-
-      if (data.success) {
-        // Trigger Next.js server-side re-fetch for dashboard pages
-        router.refresh();
-      }
+      if (data.success) router.refresh();
     } catch (err) {
       clearInterval(progressInterval);
-      setError(err instanceof Error ? err.message : "Upload failed — please try again");
+      setFileError(err instanceof Error ? err.message : "Upload failed — please try again");
     } finally {
       setUploading(false);
     }
   }
 
   function reset() {
+    setMethod(null);
+    setExportSource(null);
+    setDataType(null);
     setSelectedFile(null);
     setResult(null);
-    setError(null);
+    setFileError(null);
     setProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  function goBack() {
+    if (selectedFile || result) {
+      setSelectedFile(null); setResult(null); setFileError(null); setProgress(0);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } else if (method === "export" && exportSource) {
+      setExportSource(null);
+    } else if (method === "manual" && dataType) {
+      setDataType(null);
+    } else {
+      setMethod(null);
+    }
+  }
+
+  // ── Breadcrumb ─────────────────────────────────────────────────────────────
+
+  const crumbs: string[] = ["Ingest"];
+  if (method === "export")    crumbs.push("Export File");
+  if (method === "manual")    crumbs.push("Manual Upload");
+  if (method === "connected") crumbs.push("Connected Source");
+  if (exportSource)           crumbs.push(exportSource.label);
+  if (dataType)               crumbs.push(dataType.label);
+  if (selectedFile || result) crumbs.push("Upload");
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-5">
 
-      {/* ── Source system selector ── */}
-      <div className="card overflow-hidden">
-        <div className="card-header">
-          <h2 className="section-title">1. Select Source System</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Choose the system this file was exported from so Nexora can apply the correct field mapping
-          </p>
+      {/* Breadcrumb + back button */}
+      {method && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goBack}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors font-medium"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Back
+          </button>
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+            {crumbs.map((c, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && <ChevronRight className="w-3 h-3 opacity-40" />}
+                <span className={i === crumbs.length - 1 ? "text-slate-700 font-semibold" : ""}>{c}</span>
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="p-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {SOURCE_SYSTEMS.map((s) => (
+      )}
+
+      {/* ── STEP 1: Choose ingestion method ── */}
+      {!method && (
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <h2 className="section-title">How would you like to bring in data?</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">Choose a method — Nexora will guide you from there</p>
+          </div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+            {/* Connected Source */}
             <button
-              key={s.id}
-              onClick={() => setSourceSystem(s.id)}
-              className={clsx(
-                "flex flex-col items-start gap-1 p-3 rounded-xl border text-left transition-all",
-                sourceSystem === s.id
-                  ? "border-nexora-300 bg-nexora-50 ring-1 ring-nexora-400"
-                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-              )}
+              onClick={() => setMethod("connected")}
+              className="relative flex flex-col items-start gap-3 p-5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-left transition-all group"
             >
-              <span className="text-xl leading-none">{s.icon}</span>
-              <p className={clsx(
-                "text-xs font-bold leading-tight mt-0.5",
-                sourceSystem === s.id ? "text-nexora-700" : "text-slate-800"
-              )}>
-                {s.label}
-              </p>
-              <p className="text-[10px] text-slate-400 leading-snug">{s.description}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── File dropzone ── */}
-      <div className="card overflow-hidden">
-        <div className="card-header">
-          <h2 className="section-title">2. Upload File</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            CSV or Excel (.xlsx / .xls) · Max 50 MB
-          </p>
-        </div>
-        <div className="p-5">
-          {!selectedFile ? (
-            <div
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={clsx(
-                "relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed",
-                "cursor-pointer transition-all duration-200 py-14 px-6 text-center",
-                dragging
-                  ? "border-nexora-400 bg-nexora-50 scale-[1.01]"
-                  : "border-slate-200 bg-slate-50/60 hover:border-nexora-300 hover:bg-nexora-50/30"
-              )}
-            >
-              <div className={clsx(
-                "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                dragging ? "bg-nexora-100" : "bg-white border border-slate-200"
-              )}>
-                <Upload className={clsx("w-6 h-6", dragging ? "text-nexora-600" : "text-slate-400")} />
+              <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                <Plug className="w-5 h-5 text-violet-500" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-700">
-                  {dragging ? "Drop it here" : "Drag & drop or click to browse"}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Supports CSV, Excel (.xlsx, .xls)
+                <p className="text-sm font-bold text-slate-800">Connected Source</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                  Direct API integration — pull from Stripe, QuickBooks, Square, SAP, NetSuite
                 </p>
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) acceptFile(f);
-                }}
-              />
-            </div>
-          ) : (
-            <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50/60">
-              <div className="w-12 h-12 rounded-xl bg-nexora-50 border border-nexora-100 flex items-center justify-center shrink-0">
-                <FileText className="w-5 h-5 text-nexora-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 truncate">{selectedFile.name}</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {(selectedFile.size / 1024).toFixed(0)} KB ·{" "}
-                  {selectedFile.name.split(".").pop()?.toUpperCase()}
-                </p>
-              </div>
-              {!uploading && (
-                <button
-                  onClick={reset}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )}
+              <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wide">Live connection</span>
+            </button>
 
-          {error && (
-            <div className="mt-3 flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-100">
-              <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-700">{error}</p>
-            </div>
-          )}
+            {/* Export File Upload */}
+            <button
+              onClick={() => setMethod("export")}
+              className="flex flex-col items-start gap-3 p-5 rounded-xl border border-nexora-200 bg-nexora-50/30 hover:bg-nexora-50 text-left transition-all group ring-1 ring-nexora-100"
+            >
+              <div className="w-10 h-10 rounded-xl bg-nexora-100 border border-nexora-200 flex items-center justify-center">
+                <FolderUp className="w-5 h-5 text-nexora-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-800">Export File Upload</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                  Upload a file exported from Stripe, QuickBooks, Square, SAP, NetSuite, or another system
+                </p>
+              </div>
+              <span className="text-[10px] font-bold text-nexora-600 uppercase tracking-wide">CSV · Excel</span>
+            </button>
+
+            {/* Manual Upload */}
+            <button
+              onClick={() => setMethod("manual")}
+              className="flex flex-col items-start gap-3 p-5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-left transition-all group"
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-800">Manual Upload</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+                  Your own spreadsheet, budget template, or data file — no specific system required
+                </p>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">CSV · Excel · PDF soon</span>
+            </button>
+
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── Upload & progress ── */}
-      {selectedFile && (
-        <div className="card p-5 space-y-4">
-          <div className="flex items-center justify-between">
+      {/* ── STEP 1b: Connected Source (coming soon) ── */}
+      {method === "connected" && (
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <h2 className="section-title">Connected Sources</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Live API integrations — authenticate once, pull data on demand
+            </p>
+          </div>
+          <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {CONNECTED_SOURCES.map((s) => (
+              <div
+                key={s.id}
+                className="relative flex flex-col items-start gap-2.5 p-4 rounded-xl border border-slate-100 bg-slate-50/60 opacity-60 cursor-not-allowed"
+              >
+                <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400">
+                  {s.icon}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-700">{s.label}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.description}</p>
+                </div>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider border border-slate-200 rounded-full px-2 py-0.5">
+                  Coming soon
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="px-5 pb-5">
+            <p className="text-[11px] text-slate-400 text-center">
+              Direct integrations are on the roadmap.{" "}
+              <button onClick={() => setMethod("export")} className="text-nexora-600 font-semibold hover:underline">
+                Use Export File Upload
+              </button>{" "}
+              to import files from these systems today.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 2a: Export — pick source system ── */}
+      {method === "export" && !exportSource && (
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <h2 className="section-title">Which system was this file exported from?</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Nexora uses this to apply the right field mapping — column names vary by system
+            </p>
+          </div>
+          <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {EXPORT_SOURCES.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setExportSource(s)}
+                className="flex items-start gap-3 p-4 rounded-xl border border-slate-200 bg-white hover:border-nexora-300 hover:bg-nexora-50/30 text-left transition-all group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 group-hover:bg-nexora-100 group-hover:text-nexora-600 transition-colors text-slate-500">
+                  {s.icon}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-800 group-hover:text-nexora-700">{s.label}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 2b: Manual — pick data type ── */}
+      {method === "manual" && !dataType && (
+        <div className="card overflow-hidden">
+          <div className="card-header">
+            <h2 className="section-title">What kind of data is this?</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              This tells Nexora which database table to populate and how to interpret the amounts
+            </p>
+          </div>
+          <div className="p-5 space-y-2">
+            {DATA_TYPES.map((dt) => (
+              <button
+                key={dt.id}
+                onClick={() => setDataType(dt)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-white hover:border-nexora-300 hover:bg-nexora-50/30 text-left transition-all group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
+                  {dt.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-800 group-hover:text-nexora-700">{dt.label}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{dt.description}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 italic">{dt.example}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-nexora-400 shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── STEP 3: File upload ── */}
+      {readyForFile && !result && (
+        <div className="card overflow-hidden">
+          <div className="card-header flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-800">3. Run Ingestion Pipeline</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Source:{" "}
-                <span className="font-semibold text-nexora-600">
-                  {SOURCE_SYSTEMS.find((s) => s.id === sourceSystem)?.label}
-                </span>{" "}
-                · File:{" "}
-                <span className="font-semibold text-slate-600">{selectedFile.name}</span>
+              <h2 className="section-title">Upload File</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                <span className="font-semibold text-nexora-600">{getSelectionLabel()}</span>
+                {" "}· CSV or Excel · Max 50 MB
               </p>
             </div>
-            <button
-              onClick={handleUpload}
-              disabled={uploading}
-              className={clsx(
-                "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all",
-                uploading
-                  ? "bg-nexora-100 text-nexora-300 cursor-not-allowed"
-                  : "bg-nexora-600 text-white hover:bg-nexora-700 shadow-sm shadow-nexora-200"
-              )}
-            >
-              {uploading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4" />
-                  Upload & Ingest
-                </>
-              )}
-            </button>
           </div>
-
-          {/* Progress bar */}
-          {(uploading || progress > 0) && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>
-                  {progress < 20 ? "Parsing file..." :
-                   progress < 50 ? "Mapping fields..." :
-                   progress < 80 ? "Cleaning data..." :
-                   progress < 100 ? "Writing to database..." :
-                   "Complete!"}
-                </span>
-                <span className="font-bold text-nexora-600">{progress}%</span>
-              </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className={clsx(
-                    "h-full rounded-full transition-all duration-300",
-                    progress === 100 ? "bg-emerald-500" : "bg-nexora-500"
-                  )}
-                  style={{ width: `${progress}%` }}
+          <div className="p-5">
+            {!selectedFile ? (
+              <div
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={clsx(
+                  "relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed",
+                  "cursor-pointer transition-all duration-200 py-14 px-6 text-center",
+                  dragging
+                    ? "border-nexora-400 bg-nexora-50 scale-[1.01]"
+                    : "border-slate-200 bg-slate-50/60 hover:border-nexora-300 hover:bg-nexora-50/30"
+                )}
+              >
+                <div className={clsx(
+                  "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
+                  dragging ? "bg-nexora-100" : "bg-white border border-slate-200"
+                )}>
+                  <Upload className={clsx("w-6 h-6", dragging ? "text-nexora-600" : "text-slate-400")} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">
+                    {dragging ? "Drop it here" : "Drag & drop or click to browse"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">CSV · Excel (.xlsx, .xls)</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) acceptFile(f);
+                  }}
                 />
               </div>
+            ) : (
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50/60">
+                <div className="w-12 h-12 rounded-xl bg-nexora-50 border border-nexora-100 flex items-center justify-center shrink-0">
+                  <FileText className="w-5 h-5 text-nexora-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{selectedFile.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {(selectedFile.size / 1024).toFixed(0)} KB ·{" "}
+                    {selectedFile.name.split(".").pop()?.toUpperCase()} · {getSelectionLabel()}
+                  </p>
+                </div>
+                {!uploading && (
+                  <button onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 shrink-0">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {fileError && (
+              <div className="mt-3 flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-100">
+                <XCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{fileError}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Run ingestion */}
+          {selectedFile && (
+            <div className="border-t border-slate-100 px-5 py-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-slate-500">
+                  Ready to ingest{" "}
+                  <span className="font-semibold text-slate-700">{selectedFile.name}</span>
+                  {" "}as{" "}
+                  <span className="font-semibold text-nexora-600">{getSelectionLabel()}</span>
+                </p>
+                {(uploading || progress > 0) && (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-[10px] text-slate-400">
+                      {progress < 20 ? "Parsing file..." :
+                       progress < 50 ? "Mapping fields..." :
+                       progress < 80 ? "Cleaning data..." :
+                       progress < 100 ? "Writing to database..." : "Complete!"}
+                    </p>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden w-48">
+                      <div
+                        className={clsx("h-full rounded-full transition-all duration-300",
+                          progress === 100 ? "bg-emerald-500" : "bg-nexora-500")}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                className={clsx(
+                  "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all shrink-0",
+                  uploading
+                    ? "bg-nexora-100 text-nexora-300 cursor-not-allowed"
+                    : "bg-nexora-600 text-white hover:bg-nexora-700 shadow-sm shadow-nexora-200"
+                )}
+              >
+                {uploading
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</>
+                  : <><Upload className="w-4 h-4" /> Run Ingestion</>
+                }
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Result ── */}
+      {/* ── STEP 4: Result ── */}
       {result && (
         <div className="space-y-4">
           {/* Status banner */}
           <div className={clsx(
             "rounded-2xl border p-5 flex items-start gap-4",
-            result.success
-              ? "bg-emerald-50 border-emerald-200"
-              : "bg-amber-50 border-amber-200"
+            result.success ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
           )}>
             <div className={clsx(
               "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
@@ -337,21 +581,16 @@ export default function DataIngestionClient() {
             )}>
               {result.success
                 ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                : <AlertTriangle className="w-5 h-5 text-amber-600" />
-              }
+                : <AlertTriangle className="w-5 h-5 text-amber-600" />}
             </div>
             <div className="flex-1">
-              <p className={clsx(
-                "text-sm font-bold",
-                result.success ? "text-emerald-800" : "text-amber-800"
-              )}>
+              <p className={clsx("text-sm font-bold",
+                result.success ? "text-emerald-800" : "text-amber-800")}>
                 {result.success ? "Ingestion Complete" : "Ingestion Completed with Warnings"}
               </p>
-              <p className={clsx(
-                "text-xs mt-0.5",
-                result.success ? "text-emerald-600" : "text-amber-600"
-              )}>
-                {result.fileName} · {SOURCE_SYSTEMS.find((s) => s.id === result.sourceSystem)?.label} · {result.durationMs}ms
+              <p className={clsx("text-xs mt-0.5",
+                result.success ? "text-emerald-600" : "text-amber-600")}>
+                {result.fileName} · {getSelectionLabel()} · {result.durationMs}ms
               </p>
             </div>
             <button
@@ -361,13 +600,12 @@ export default function DataIngestionClient() {
                 result.success
                   ? "border-emerald-300 text-emerald-700 hover:bg-emerald-100"
                   : "border-amber-300 text-amber-700 hover:bg-amber-100"
-              )}
-            >
+              )}>
               Upload Another
             </button>
           </div>
 
-          {/* Metrics row */}
+          {/* Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Rows Received",  value: result.rowsReceived,  color: "text-slate-700",   bg: "bg-white" },
@@ -382,15 +620,13 @@ export default function DataIngestionClient() {
             ))}
           </div>
 
-          {/* Data quality log */}
+          {/* Quality log */}
           {result.qualityLog.length > 0 && (
             <div className="card overflow-hidden">
               <div className="card-header flex items-center justify-between">
                 <div>
                   <h2 className="section-title">Data Quality Log</h2>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {result.qualityLog.length} cleaning actions applied
-                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{result.qualityLog.length} cleaning actions applied</p>
                 </div>
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                   <Database className="w-3.5 h-3.5" />
@@ -442,12 +678,8 @@ export default function DataIngestionClient() {
                   {result.rowsProcessed.toLocaleString()} rows written to the database. All dashboard pages will reflect the new data on next load.
                 </p>
               </div>
-              <a
-                href="/"
-                className="flex items-center gap-1.5 text-xs font-bold text-nexora-700 hover:text-nexora-800 shrink-0"
-              >
-                View Dashboard
-                <ChevronRight className="w-3.5 h-3.5" />
+              <a href="/" className="flex items-center gap-1.5 text-xs font-bold text-nexora-700 hover:text-nexora-800 shrink-0">
+                View Dashboard <ChevronRight className="w-3.5 h-3.5" />
               </a>
             </div>
           )}
