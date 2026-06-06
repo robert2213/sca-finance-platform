@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import PageWrapper from "@/components/layout/PageWrapper";
+import clsx from "clsx";
 import {
   Database,
   Cpu,
@@ -16,6 +17,12 @@ import {
   Briefcase,
   BarChart3,
   Users,
+  UploadCloud,
+  AlertTriangle,
+  FileText,
+  Package,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -41,6 +48,14 @@ interface Persona {
   icon: React.ElementType;
   title: string;
   desc: string;
+}
+
+interface WorkflowStep {
+  n: number;
+  icon: React.ElementType;
+  title: string;
+  desc: string;
+  databricks?: boolean;
 }
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -86,8 +101,8 @@ const STAGES: Stage[] = [
   {
     n: 5,
     icon: Bot,
-    title: "AI Finance Agents",
-    desc: "Specialized AI agents analyze financial data continuously and surface the insights that matter — before you think to ask.",
+    title: "Finance Decision Support Agents",
+    desc: "Specialized finance agents analyze performance, risk, spend, and workforce data to surface decision-ready insights before leaders have to search for them.",
     items: ["CFO Agent", "FP&A Agent", "Procurement Agent", "Headcount Agent", "External Labor Agent", "Finance Business Partner"],
     type: "agents",
     connector: "AI-generated insights",
@@ -114,23 +129,23 @@ const AGENT_EMOJIS: Record<string, string> = {
 const IMPACT: ImpactCard[] = [
   {
     icon: Clock,
-    title: "Reduce Manual Reporting",
-    desc: "Eliminate the hours spent gathering, reconciling, and formatting financial data for leadership consumption.",
+    title: "Reduce Monthly Reporting Effort",
+    desc: "Decrease time spent gathering, reconciling, and formatting financial data by 50–80% through automated data preparation and reporting workflows.",
   },
   {
     icon: Eye,
     title: "Improve Financial Visibility",
-    desc: "Give every leader a centralized, real-time view of performance against budget and forecast.",
+    desc: "Give finance and executive leaders a centralized, real-time view of performance against budget, forecast, spend, headcount, and vendor activity.",
   },
   {
     icon: Zap,
-    title: "Accelerate Analysis",
-    desc: "Surface variance drivers, budget risks, and spend opportunities in seconds rather than days.",
+    title: "Surface Variances Faster",
+    desc: "Identify budget risks, spend drivers, and forecast concerns in seconds instead of waiting for month-end reporting cycles.",
   },
   {
     icon: CheckCircle2,
     title: "Support Better Decisions",
-    desc: "Enable finance leaders to act on insights rather than spend time producing the reports that contain them.",
+    desc: "Turn financial data into executive commentary, recommended actions, and decision-ready insights for leadership review.",
   },
 ];
 
@@ -138,17 +153,17 @@ const PERSONAS: Persona[] = [
   {
     icon: Briefcase,
     title: "Chief Financial Officer",
-    desc: "Real-time visibility into full-company financial performance, risk exposure, and forecast accuracy.",
+    desc: "Full-company financial visibility, forecast accuracy tracking, risk exposure monitoring, and board-ready reporting — without waiting on manual report cycles.",
   },
   {
     icon: BarChart3,
     title: "FP&A & Finance Directors",
-    desc: "Automated variance analysis, reforecast support, and executive commentary generation.",
+    desc: "Automated variance analysis, multi-cycle reforecast support, spend driver identification, and executive commentary generation at the click of a button.",
   },
   {
     icon: Users,
     title: "Finance Business Partners",
-    desc: "Department-level spend visibility, headcount tracking, and vendor spend governance.",
+    desc: "Department-level budget vs. actual tracking, headcount cost visibility, vendor spend governance, and real-time KPI monitoring by business unit.",
   },
 ];
 
@@ -431,6 +446,157 @@ function PersonasSection() {
   );
 }
 
+// ── Example workflow data ─────────────────────────────────────────────────────
+
+const WORKFLOW: WorkflowStep[] = [
+  {
+    n: 1,
+    icon: UploadCloud,
+    title: "QuickBooks / ERP Export",
+    desc: "Financial data is imported from accounting, ERP, payroll, procurement, or spreadsheet sources.",
+  },
+  {
+    n: 2,
+    icon: Cpu,
+    title: "Databricks Processing",
+    desc: "Data is validated, cleaned, transformed, and structured into a trusted financial model.",
+    databricks: true,
+  },
+  {
+    n: 3,
+    icon: Layers,
+    title: "Financial Model Standardization",
+    desc: "Actuals, budget, forecast, vendor, labor, and headcount data are aligned into a unified analytical framework.",
+  },
+  {
+    n: 4,
+    icon: AlertTriangle,
+    title: "Variance & Risk Detection",
+    desc: "The platform identifies budget pressure, spend drivers, forecast risk, and emerging financial issues automatically.",
+  },
+  {
+    n: 5,
+    icon: Bot,
+    title: "Finance Agent Review",
+    desc: "Specialized finance agents interpret results and generate business context without requiring manual analysis.",
+  },
+  {
+    n: 6,
+    icon: FileText,
+    title: "Executive Commentary",
+    desc: "Nexora converts analysis into leadership-ready narrative, variance explanations, and recommended actions.",
+  },
+  {
+    n: 7,
+    icon: Package,
+    title: "Monthly Reporting Package",
+    desc: "Finance leaders receive dashboards, commentary, risk summaries, and complete reporting outputs — ready to present.",
+  },
+];
+
+// ── Workflow connector ────────────────────────────────────────────────────────
+
+function WorkflowConnector() {
+  return (
+    <>
+      {/* Desktop: right arrow with gradient line */}
+      <div className="hidden md:flex items-center shrink-0 px-0.5" aria-hidden="true">
+        <div className="h-px w-5 bg-gradient-to-r from-slate-200 to-nexora-200 dark:from-slate-700 dark:to-nexora-700" />
+        <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 -ml-px shrink-0" />
+      </div>
+      {/* Mobile: down arrow */}
+      <div className="flex md:hidden justify-center py-1" aria-hidden="true">
+        <ChevronDown className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+      </div>
+    </>
+  );
+}
+
+// ── Workflow card ─────────────────────────────────────────────────────────────
+
+function WorkflowCard({ step }: { step: WorkflowStep }) {
+  const Icon = step.icon;
+  return (
+    <div
+      className={clsx(
+        "relative flex-shrink-0 w-full md:w-44 rounded-2xl border shadow-sm p-4",
+        "hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default",
+        step.databricks
+          ? "bg-nexora-50/50 dark:bg-nexora-900/20 border-nexora-200 dark:border-nexora-700"
+          : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-nexora-200 dark:hover:border-nexora-700"
+      )}
+    >
+      {/* Step badge */}
+      <span className="absolute top-3 left-3 text-[10px] font-black text-slate-400 dark:text-slate-500 tabular-nums leading-none">
+        {String(step.n).padStart(2, "0")}
+      </span>
+
+      {/* Icon */}
+      <div className="flex justify-center mt-5 mb-3">
+        <div
+          className={clsx(
+            "w-10 h-10 rounded-xl flex items-center justify-center border",
+            step.databricks
+              ? "bg-nexora-100 dark:bg-nexora-900/50 border-nexora-200 dark:border-nexora-700"
+              : "bg-nexora-50 dark:bg-nexora-900/40 border-nexora-100 dark:border-nexora-800"
+          )}
+        >
+          <Icon className="w-5 h-5 text-nexora-600 dark:text-nexora-400" />
+        </div>
+      </div>
+
+      {/* Title */}
+      <h5 className="text-[12px] font-bold text-slate-900 dark:text-slate-100 text-center mb-1.5 leading-tight">
+        {step.title}
+      </h5>
+
+      {/* Description */}
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed text-center line-clamp-3">
+        {step.desc}
+      </p>
+
+      {/* Databricks trust signal */}
+      {step.databricks && (
+        <div className="mt-2 flex justify-center">
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-nexora-100 dark:bg-nexora-900/50 text-nexora-600 dark:text-nexora-400 border border-nexora-200 dark:border-nexora-700 whitespace-nowrap">
+            Powered by Databricks
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Workflow section ──────────────────────────────────────────────────────────
+
+function WorkflowSection() {
+  const ref = useReveal();
+
+  return (
+    <div ref={ref} className="arch-reveal mb-14">
+      <div className="section-heading">
+        <span className="section-heading-bar" />
+        <span className="section-heading-text">
+          Example Workflow
+          <span className="section-heading-sub">How raw financial data becomes executive-ready reporting</span>
+        </span>
+      </div>
+
+      {/* Horizontal scroll on desktop, vertical stack on mobile */}
+      <div className="overflow-x-auto -mx-1 px-1 pb-2">
+        <div className="flex flex-col md:flex-row md:items-start md:min-w-max gap-0">
+          {WORKFLOW.map((step, i) => (
+            <React.Fragment key={step.n}>
+              <WorkflowCard step={step} />
+              {i < WORKFLOW.length - 1 && <WorkflowConnector />}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ArchitecturePage() {
@@ -441,13 +607,16 @@ export default function ArchitecturePage() {
       badge="Platform"
     >
       {/* Hero */}
-      <div className="text-center mb-10 max-w-2xl mx-auto">
+      <div className="text-center mb-6 max-w-2xl mx-auto">
         <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-2 leading-tight tracking-tight">
           Nexora Finance Command Center{" "}
           <span className="gradient-text">Architecture</span>
         </h2>
         <p className="text-[14px] text-slate-500 dark:text-slate-400">
           From Raw Financial Data to Executive Decision Support
+        </p>
+        <p className="text-[12px] text-slate-400 dark:text-slate-500 mt-2">
+          Nexora connects fragmented financial data to dashboards, AI-assisted analysis, and executive reporting workflows.
         </p>
       </div>
 
@@ -463,6 +632,9 @@ export default function ArchitecturePage() {
 
       {/* Business Impact */}
       <ImpactSection />
+
+      {/* Example Workflow */}
+      <WorkflowSection />
 
       {/* Finance Leadership personas */}
       <PersonasSection />

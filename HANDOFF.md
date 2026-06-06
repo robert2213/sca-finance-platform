@@ -733,3 +733,56 @@ Icon: `Network` (Lucide React)
 **Build result:** `/architecture` builds as a static page (4.31 kB, 103 kB first load JS) — all 25 routes pass.
 
 **Next session:** Pick up at Executive Commentary Agent build
+
+---
+
+## Session Update — June 6, 2026
+
+### Updated: System Architecture Page — Executive Refinement Pass
+
+Route: `/architecture`
+
+**Changes applied:**
+
+- **AI Finance Agents section renamed** to "Finance Decision Support Agents" — positions agents as financial intelligence and decision-support capabilities, not generic chatbots
+- **Agent section subtitle updated** to decision-support language: "Specialized finance agents analyze performance, risk, spend, and workforce data to surface decision-ready insights before leaders have to search for them."
+- **All 4 Business Impact cards updated** with measurable outcome language — 50–80% reporting reduction, real-time visibility across budget/forecast/spend/headcount/vendors, seconds not weeks for variance identification
+- **Value statement added** below page subtitle in muted secondary text: "Nexora connects fragmented financial data to dashboards, AI-assisted analysis, and executive reporting workflows."
+- **Example Workflow section added** (7-step flow: QuickBooks/ERP Export → Databricks Processing → Financial Model Standardization → Variance & Risk Detection → Finance Agent Review → Executive Commentary → Monthly Reporting Package)
+- **Persona card descriptions sharpened** with role-specific, outcome-oriented language (CFO, FP&A Director, Finance Business Partner)
+
+**Design decisions:**
+
+- Databricks referenced once with subtle nexora accent border + "Powered by Databricks" badge in Example Workflow — positioned as trust signal only
+- All language remains executive/business — zero technical terminology
+- Step numbers rendered as muted badges (01–07) for visual scannability
+- Horizontal flow desktop (`md:flex-row`, `overflow-x-auto`) / vertical stack mobile (`flex-col`) for Example Workflow
+- Right arrow (`→`) with gradient line on desktop, down arrow (`↓`) on mobile for workflow connectors
+
+**What was NOT changed:**
+
+- Existing 6-stage architecture flow diagram
+- Sidebar navigation structure
+- Agent cards (names, layout, emojis)
+- Page route or nav label
+- Any other page or application functionality
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/app/architecture/page.tsx` | Changes 1–5 applied (rename, impact copy, value statement, workflow section, persona copy) |
+| `HANDOFF.md` | Session notes appended |
+
+**Next session priorities:**
+
+1. Executive Commentary Agent — wire Claude to live Databricks query layer
+2. CFO Summary generation endpoint
+3. Commentary panel on FP&A and CFO dashboard pages
+4. Automated board deck generation (Phase 3 roadmap)
+
+**Known items for future pass:**
+
+- Example Workflow section could link to live demo of each step when commentary agent is complete
+- Persona cards could deep-link to relevant dashboard pages
+- Consider adding a "Request Demo" CTA at bottom of architecture page for Sin City Analytics client acquisition
