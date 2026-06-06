@@ -21,7 +21,7 @@ export default function DataIngestionPage() {
   return (
     <PageWrapper
       title="Data Ingestion"
-      subtitle="Connect a source, upload an export, or drop in your own file"
+      subtitle="Connect directly via API or import a file from any source"
       badge="Pipeline"
     >
       <StatsBanner />
@@ -47,7 +47,7 @@ export default function DataIngestionPage() {
       <section>
         <SectionHeader
           label="Ingest Financial Data"
-          sub="Connected source · Export file upload · Manual upload"
+          sub="Connected source · Import file"
         />
         <DataIngestionClient />
       </section>

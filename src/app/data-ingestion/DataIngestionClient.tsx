@@ -6,99 +6,84 @@ import clsx from "clsx";
 import {
   Upload, FileText, CheckCircle2, AlertTriangle,
   XCircle, RefreshCw, Database, ChevronRight, X,
-  Plug, FolderUp, FileSpreadsheet, ChevronLeft,
-  Zap, BookOpen, ShoppingCart, Building2, Globe, Users,
+  Plug, FileUp, Zap, BookOpen, ShoppingCart,
+  Building2, Globe, Users, ChevronDown,
 } from "lucide-react";
 import type { IngestionResult, SourceSystem } from "@/lib/ingestion/types";
 
-// ─── Taxonomy ─────────────────────────────────────────────────────────────────
-
-type IngestionMethod = "connected" | "export" | "manual";
-
-type ExportSource = {
-  id: string;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-  sourceSystem: SourceSystem;
-  comingSoon?: boolean;
-};
+// ─── Data types ───────────────────────────────────────────────────────────────
 
 type DataType = {
   id: string;
   label: string;
   description: string;
-  icon: React.ReactNode;
-  sourceSystem: SourceSystem;
   example: string;
+  icon: string;
+  sourceSystem: SourceSystem;
 };
-
-type ConnectedSource = {
-  id: string;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-};
-
-const CONNECTED_SOURCES: ConnectedSource[] = [
-  { id: "stripe",     label: "Stripe",     description: "Pull billing & revenue events",    icon: <Zap className="w-5 h-5" /> },
-  { id: "quickbooks", label: "QuickBooks", description: "Sync GL, P&L, and AP/AR",          icon: <BookOpen className="w-5 h-5" /> },
-  { id: "square",     label: "Square",     description: "Import payment and sales data",     icon: <ShoppingCart className="w-5 h-5" /> },
-  { id: "sap",        label: "SAP",        description: "Connect to SAP ERP modules",        icon: <Building2 className="w-5 h-5" /> },
-  { id: "netsuite",   label: "NetSuite",   description: "Sync from NetSuite financials",     icon: <Globe className="w-5 h-5" /> },
-  { id: "salesforce", label: "Salesforce", description: "Pull CRM and revenue pipeline",     icon: <Users className="w-5 h-5" /> },
-];
-
-const EXPORT_SOURCES: ExportSource[] = [
-  { id: "stripe",     label: "Stripe",         description: "Stripe CSV billing export",           icon: <Zap className="w-4 h-4" />,          sourceSystem: "stripe" },
-  { id: "quickbooks", label: "QuickBooks",      description: "QuickBooks GL or P&L export",         icon: <BookOpen className="w-4 h-4" />,      sourceSystem: "quickbooks" },
-  { id: "square",     label: "Square",          description: "Square sales or payments export",     icon: <ShoppingCart className="w-4 h-4" />,  sourceSystem: "other" },
-  { id: "sap",        label: "SAP",             description: "SAP GL or cost center extract",       icon: <Building2 className="w-4 h-4" />,     sourceSystem: "gl-export" },
-  { id: "netsuite",   label: "NetSuite",        description: "NetSuite transaction or budget export",icon: <Globe className="w-4 h-4" />,         sourceSystem: "gl-export" },
-  { id: "other",      label: "Other System",    description: "Any structured financial export",     icon: <FileSpreadsheet className="w-4 h-4" />,sourceSystem: "other" },
-];
 
 const DATA_TYPES: DataType[] = [
   {
     id: "actuals",
-    label: "Actuals / Transactions",
+    label: "Actuals & Transactions",
     description: "Real spend that has already occurred",
     example: "Monthly GL export, invoice records, purchase history",
-    icon: <span className="text-lg">💸</span>,
+    icon: "💸",
     sourceSystem: "gl-export",
   },
   {
     id: "budget",
-    label: "Budget / Plan",
+    label: "Budget & Plan",
     description: "Approved spending plan or revised forecast",
-    example: "Annual budget, quarterly reforecast",
-    icon: <span className="text-lg">📋</span>,
+    example: "Annual budget, quarterly reforecast, revised plan",
+    icon: "📋",
     sourceSystem: "budget-export",
   },
   {
     id: "vendors",
     label: "Vendor Contracts",
-    description: "Vendor master with contract values and dates",
-    example: "Procurement roster, contract register",
-    icon: <span className="text-lg">🤝</span>,
+    description: "Vendor master with contract values and renewal dates",
+    example: "Procurement register, contract tracker",
+    icon: "🤝",
     sourceSystem: "vendors",
   },
   {
     id: "headcount",
-    label: "Headcount / Workforce",
-    description: "Position roster — filled and open requisitions",
+    label: "Headcount & Workforce",
+    description: "Position roster — filled roles and open requisitions",
     example: "HRIS export, org chart data, open req list",
-    icon: <span className="text-lg">👥</span>,
+    icon: "👥",
     sourceSystem: "headcount",
   },
   {
     id: "contractors",
-    label: "External Labor / Contractors",
-    description: "Contractor engagements and burn rates",
-    example: "Staffing agency roster, SOW tracker",
-    icon: <span className="text-lg">🧑‍💻</span>,
+    label: "External Labor & Contractors",
+    description: "Contractor engagements, SOWs, and burn rates",
+    example: "Staffing agency roster, contractor spend tracker",
+    icon: "🧑‍💻",
     sourceSystem: "contractors",
   },
+];
+
+// Optional source system hint for field mapping
+type SourceHint = { id: SourceSystem; label: string };
+const SOURCE_HINTS: SourceHint[] = [
+  { id: "gl-export",     label: "Generic / Internal"  },
+  { id: "quickbooks",    label: "QuickBooks"          },
+  { id: "stripe",        label: "Stripe"              },
+  { id: "other",         label: "Square"              },
+  { id: "gl-export",     label: "SAP"                 },
+  { id: "gl-export",     label: "NetSuite"            },
+];
+
+// Connected sources (coming soon)
+const CONNECTED_SOURCES = [
+  { id: "stripe",     label: "Stripe",      desc: "Pull billing & revenue events",   icon: <Zap className="w-4 h-4" /> },
+  { id: "quickbooks", label: "QuickBooks",  desc: "Sync GL, P&L, and AP/AR",         icon: <BookOpen className="w-4 h-4" /> },
+  { id: "square",     label: "Square",      desc: "Import payment and sales data",   icon: <ShoppingCart className="w-4 h-4" /> },
+  { id: "sap",        label: "SAP",         desc: "Connect to SAP ERP modules",      icon: <Building2 className="w-4 h-4" /> },
+  { id: "netsuite",   label: "NetSuite",    desc: "Sync from NetSuite financials",   icon: <Globe className="w-4 h-4" /> },
+  { id: "salesforce", label: "Salesforce",  desc: "Pull CRM and revenue pipeline",   icon: <Users className="w-4 h-4" /> },
 ];
 
 const ACTION_LABELS: Record<string, string> = {
@@ -123,49 +108,38 @@ const ACTION_COLORS: Record<string, string> = {
   missing_required_field:  "text-red-700 bg-red-50 border-red-200",
 };
 
-const ACCEPTED_EXTENSIONS = ["csv", "xlsx", "xls"];
+// ─── Component ────────────────────────────────────────────────────────────────
 
-// ─── Main component ───────────────────────────────────────────────────────────
+type Method = "connected" | "import";
 
 export default function DataIngestionClient() {
-  const router = useRouter();
+  const router      = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Selection state
-  const [method,       setMethod]       = useState<IngestionMethod | null>(null);
-  const [exportSource, setExportSource] = useState<ExportSource | null>(null);
-  const [dataType,     setDataType]     = useState<DataType | null>(null);
+  // Selection
+  const [method,      setMethod]      = useState<Method | null>(null);
+  const [dataType,    setDataType]    = useState<DataType | null>(null);
+  const [sourceHintIdx, setSourceHintIdx] = useState(0); // index into SOURCE_HINTS
 
-  // Upload state
-  const [dragging,      setDragging]      = useState(false);
-  const [selectedFile,  setSelectedFile]  = useState<File | null>(null);
-  const [uploading,     setUploading]     = useState(false);
-  const [progress,      setProgress]      = useState(0);
-  const [result,        setResult]        = useState<IngestionResult | null>(null);
-  const [fileError,     setFileError]     = useState<string | null>(null);
+  // File / upload
+  const [dragging,     setDragging]     = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading,    setUploading]    = useState(false);
+  const [progress,     setProgress]     = useState(0);
+  const [result,       setResult]       = useState<IngestionResult | null>(null);
+  const [fileError,    setFileError]    = useState<string | null>(null);
 
-  // Derive the sourceSystem from current selections
+  // The actual sourceSystem sent to the API — data type wins; source hint overrides
+  // for actuals only (since the hint is about column-name format, not data category)
   function getSourceSystem(): SourceSystem {
-    if (method === "export" && exportSource) return exportSource.sourceSystem;
-    if (method === "manual" && dataType)     return dataType.sourceSystem;
-    return "other";
+    if (!dataType) return "other";
+    // For actuals, let the source hint influence field mapping
+    if (dataType.id === "actuals") return SOURCE_HINTS[sourceHintIdx].id;
+    return dataType.sourceSystem;
   }
 
-  // Derive a human-readable label for the current selection
-  function getSelectionLabel(): string {
-    if (method === "export" && exportSource) return exportSource.label;
-    if (method === "manual" && dataType)     return dataType.label;
-    return "Unknown";
-  }
-
-  // Are we ready to show the file drop step?
-  const readyForFile =
-    (method === "export" && exportSource !== null) ||
-    (method === "manual" && dataType !== null);
-
-  // ── File handling ──────────────────────────────────────────────────────────
-
-  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(true); }, []);
+  // ── Drag / drop ────────────────────────────────────────────────────────────
+  const onDragOver  = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(true);  }, []);
   const onDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(false); }, []);
   const onDrop      = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
@@ -175,8 +149,8 @@ export default function DataIngestionClient() {
 
   function acceptFile(file: File) {
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
-      setFileError(`"${ext.toUpperCase()}" files aren't supported yet. Upload a CSV or Excel file.`);
+    if (!["csv", "xlsx", "xls"].includes(ext)) {
+      setFileError(`"${ext.toUpperCase()}" isn't supported yet. Upload a CSV or Excel file.`);
       return;
     }
     setSelectedFile(file);
@@ -185,31 +159,22 @@ export default function DataIngestionClient() {
   }
 
   // ── Upload ─────────────────────────────────────────────────────────────────
-
   async function handleUpload() {
     if (!selectedFile) return;
-    setUploading(true);
-    setProgress(0);
-    setResult(null);
-    setFileError(null);
+    setUploading(true); setProgress(0); setResult(null); setFileError(null);
 
-    const progressInterval = setInterval(() => {
-      setProgress((p) => Math.min(p + 8, 85));
-    }, 150);
-
+    const tick = setInterval(() => setProgress((p) => Math.min(p + 8, 85)), 150);
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
-      formData.append("sourceSystem", getSourceSystem());
-
-      const response = await fetch("/api/ingest", { method: "POST", body: formData });
-      clearInterval(progressInterval);
-      setProgress(100);
-      const data: IngestionResult = await response.json();
+      const fd = new FormData();
+      fd.append("file", selectedFile);
+      fd.append("sourceSystem", getSourceSystem());
+      const res  = await fetch("/api/ingest", { method: "POST", body: fd });
+      clearInterval(tick); setProgress(100);
+      const data: IngestionResult = await res.json();
       setResult(data);
       if (data.success) router.refresh();
     } catch (err) {
-      clearInterval(progressInterval);
+      clearInterval(tick);
       setFileError(err instanceof Error ? err.message : "Upload failed — please try again");
     } finally {
       setUploading(false);
@@ -217,130 +182,97 @@ export default function DataIngestionClient() {
   }
 
   function reset() {
-    setMethod(null);
-    setExportSource(null);
-    setDataType(null);
-    setSelectedFile(null);
-    setResult(null);
-    setFileError(null);
-    setProgress(0);
+    setMethod(null); setDataType(null); setSourceHintIdx(0);
+    setSelectedFile(null); setResult(null); setFileError(null); setProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function goBack() {
-    if (selectedFile || result) {
+  function back() {
+    if (result || selectedFile) {
       setSelectedFile(null); setResult(null); setFileError(null); setProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = "";
-    } else if (method === "export" && exportSource) {
-      setExportSource(null);
-    } else if (method === "manual" && dataType) {
+    } else if (dataType) {
       setDataType(null);
     } else {
       setMethod(null);
     }
   }
 
-  // ── Breadcrumb ─────────────────────────────────────────────────────────────
-
-  const crumbs: string[] = ["Ingest"];
-  if (method === "export")    crumbs.push("Export File");
-  if (method === "manual")    crumbs.push("Manual Upload");
-  if (method === "connected") crumbs.push("Connected Source");
-  if (exportSource)           crumbs.push(exportSource.label);
-  if (dataType)               crumbs.push(dataType.label);
-  if (selectedFile || result) crumbs.push("Upload");
-
   // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
     <div className="max-w-4xl mx-auto space-y-5">
 
-      {/* Breadcrumb + back button */}
-      {method && (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={goBack}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors font-medium"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            Back
-          </button>
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-            {crumbs.map((c, i) => (
-              <span key={i} className="flex items-center gap-1.5">
-                {i > 0 && <ChevronRight className="w-3 h-3 opacity-40" />}
-                <span className={i === crumbs.length - 1 ? "text-slate-700 font-semibold" : ""}>{c}</span>
-              </span>
-            ))}
-          </div>
-        </div>
+      {/* Back link */}
+      {method && !result && (
+        <button onClick={back}
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors font-medium">
+          ← Back
+        </button>
       )}
 
-      {/* ── STEP 1: Choose ingestion method ── */}
+      {/* ── STEP 1: Choose method ── */}
       {!method && (
         <div className="card overflow-hidden">
           <div className="card-header">
             <h2 className="section-title">How would you like to bring in data?</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">Choose a method — Nexora will guide you from there</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Connect directly via API or upload a file from any source</p>
           </div>
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
 
             {/* Connected Source */}
-            <button
-              onClick={() => setMethod("connected")}
-              className="relative flex flex-col items-start gap-3 p-5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-left transition-all group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
-                <Plug className="w-5 h-5 text-violet-500" />
+            <button onClick={() => setMethod("connected")}
+              className="flex flex-col items-start gap-4 p-6 rounded-xl border border-slate-200 bg-white
+                         hover:border-violet-200 hover:bg-violet-50/30 text-left transition-all group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center">
+                  <Plug className="w-5 h-5 text-violet-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 group-hover:text-violet-700">Connected Source</p>
+                  <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wide">Live API sync</span>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-slate-800">Connected Source</p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Direct API integration — pull from Stripe, QuickBooks, Square, SAP, NetSuite
-                </p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Authenticate once and pull data directly — Stripe, QuickBooks, Square, SAP, NetSuite, Salesforce.
+                No file exports needed.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {["Stripe","QuickBooks","SAP","NetSuite"].map(s => (
+                  <span key={s} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{s}</span>
+                ))}
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-400">+2 more</span>
               </div>
-              <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wide">Live connection</span>
             </button>
 
-            {/* Export File Upload */}
-            <button
-              onClick={() => setMethod("export")}
-              className="flex flex-col items-start gap-3 p-5 rounded-xl border border-nexora-200 bg-nexora-50/30 hover:bg-nexora-50 text-left transition-all group ring-1 ring-nexora-100"
-            >
-              <div className="w-10 h-10 rounded-xl bg-nexora-100 border border-nexora-200 flex items-center justify-center">
-                <FolderUp className="w-5 h-5 text-nexora-600" />
+            {/* Import File */}
+            <button onClick={() => setMethod("import")}
+              className="flex flex-col items-start gap-4 p-6 rounded-xl border border-nexora-200 bg-nexora-50/20
+                         hover:bg-nexora-50/60 text-left transition-all group ring-1 ring-nexora-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-nexora-100 border border-nexora-200 flex items-center justify-center">
+                  <FileUp className="w-5 h-5 text-nexora-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 group-hover:text-nexora-700">Import File</p>
+                  <span className="text-[10px] font-bold text-nexora-500 uppercase tracking-wide">CSV · Excel</span>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-bold text-slate-800">Export File Upload</p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Upload a file exported from Stripe, QuickBooks, Square, SAP, NetSuite, or another system
-                </p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Upload any financial file — exported from QuickBooks, Stripe, SAP, or built
+                manually in Excel. Nexora maps the columns automatically.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {["Transactions","Budget","Vendors","Headcount","Contractors"].map(t => (
+                  <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-nexora-100 text-nexora-600">{t}</span>
+                ))}
               </div>
-              <span className="text-[10px] font-bold text-nexora-600 uppercase tracking-wide">CSV · Excel</span>
-            </button>
-
-            {/* Manual Upload */}
-            <button
-              onClick={() => setMethod("manual")}
-              className="flex flex-col items-start gap-3 p-5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-left transition-all group"
-            >
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-800">Manual Upload</p>
-                <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                  Your own spreadsheet, budget template, or data file — no specific system required
-                </p>
-              </div>
-              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">CSV · Excel · PDF soon</span>
             </button>
 
           </div>
         </div>
       )}
 
-      {/* ── STEP 1b: Connected Source (coming soon) ── */}
+      {/* ── STEP 1b: Connected Source — coming soon ── */}
       {method === "connected" && (
         <div className="card overflow-hidden">
           <div className="card-header">
@@ -351,81 +283,47 @@ export default function DataIngestionClient() {
           </div>
           <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
             {CONNECTED_SOURCES.map((s) => (
-              <div
-                key={s.id}
-                className="relative flex flex-col items-start gap-2.5 p-4 rounded-xl border border-slate-100 bg-slate-50/60 opacity-60 cursor-not-allowed"
-              >
-                <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400">
+              <div key={s.id}
+                className="flex items-start gap-3 p-4 rounded-xl border border-slate-100 bg-slate-50/60 opacity-60 cursor-not-allowed">
+                <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-slate-400">
                   {s.icon}
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-700">{s.label}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.description}</p>
+                  <p className="text-xs font-bold text-slate-600">{s.label}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.desc}</p>
+                  <span className="mt-1.5 inline-block text-[9px] font-bold text-slate-400 uppercase tracking-wider border border-slate-200 rounded-full px-2 py-0.5">
+                    Coming soon
+                  </span>
                 </div>
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider border border-slate-200 rounded-full px-2 py-0.5">
-                  Coming soon
-                </span>
               </div>
             ))}
           </div>
-          <div className="px-5 pb-5">
+          <div className="px-5 pb-5 pt-1">
             <p className="text-[11px] text-slate-400 text-center">
-              Direct integrations are on the roadmap.{" "}
-              <button onClick={() => setMethod("export")} className="text-nexora-600 font-semibold hover:underline">
-                Use Export File Upload
-              </button>{" "}
-              to import files from these systems today.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ── STEP 2a: Export — pick source system ── */}
-      {method === "export" && !exportSource && (
-        <div className="card overflow-hidden">
-          <div className="card-header">
-            <h2 className="section-title">Which system was this file exported from?</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Nexora uses this to apply the right field mapping — column names vary by system
-            </p>
-          </div>
-          <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {EXPORT_SOURCES.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setExportSource(s)}
-                className="flex items-start gap-3 p-4 rounded-xl border border-slate-200 bg-white hover:border-nexora-300 hover:bg-nexora-50/30 text-left transition-all group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 group-hover:bg-nexora-100 group-hover:text-nexora-600 transition-colors text-slate-500">
-                  {s.icon}
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-800 group-hover:text-nexora-700">{s.label}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.description}</p>
-                </div>
+              Direct integrations are coming.{" "}
+              <button onClick={() => setMethod("import")} className="text-nexora-600 font-semibold hover:underline">
+                Import a file instead →
               </button>
-            ))}
+            </p>
           </div>
         </div>
       )}
 
-      {/* ── STEP 2b: Manual — pick data type ── */}
-      {method === "manual" && !dataType && (
+      {/* ── STEP 2: What kind of data? ── */}
+      {method === "import" && !dataType && (
         <div className="card overflow-hidden">
           <div className="card-header">
-            <h2 className="section-title">What kind of data is this?</h2>
+            <h2 className="section-title">What kind of data are you importing?</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              This tells Nexora which database table to populate and how to interpret the amounts
+              Tells Nexora which table to populate and how to interpret the amounts
             </p>
           </div>
           <div className="p-5 space-y-2">
             {DATA_TYPES.map((dt) => (
-              <button
-                key={dt.id}
-                onClick={() => setDataType(dt)}
-                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-white hover:border-nexora-300 hover:bg-nexora-50/30 text-left transition-all group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0">
+              <button key={dt.id} onClick={() => setDataType(dt)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-white
+                           hover:border-nexora-300 hover:bg-nexora-50/30 text-left transition-all group">
+                <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 text-xl">
                   {dt.icon}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -440,24 +338,42 @@ export default function DataIngestionClient() {
         </div>
       )}
 
-      {/* ── STEP 3: File upload ── */}
-      {readyForFile && !result && (
+      {/* ── STEP 3: Upload ── */}
+      {method === "import" && dataType && !result && (
         <div className="card overflow-hidden">
-          <div className="card-header flex items-center justify-between">
+          <div className="card-header flex items-start justify-between gap-4">
             <div>
-              <h2 className="section-title">Upload File</h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                <span className="font-semibold text-nexora-600">{getSelectionLabel()}</span>
-                {" "}· CSV or Excel · Max 50 MB
-              </p>
+              <h2 className="section-title">
+                <span className="mr-1.5">{dataType.icon}</span>
+                {dataType.label}
+              </h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">{dataType.description}</p>
             </div>
+            {/* Source hint — only surfaced for actuals where column names vary */}
+            {dataType.id === "actuals" && (
+              <div className="shrink-0 flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Exported from</span>
+                <div className="relative">
+                  <select
+                    value={sourceHintIdx}
+                    onChange={(e) => setSourceHintIdx(Number(e.target.value))}
+                    className="appearance-none text-[11px] font-semibold text-slate-600 bg-slate-50 border border-slate-200
+                               rounded-lg pl-2.5 pr-6 py-1 cursor-pointer hover:border-slate-300 focus:outline-none"
+                  >
+                    {SOURCE_HINTS.map((h, i) => (
+                      <option key={i} value={i}>{h.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
           </div>
+
           <div className="p-5">
             {!selectedFile ? (
               <div
-                onDragOver={onDragOver}
-                onDragLeave={onDragLeave}
-                onDrop={onDrop}
+                onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
                 onClick={() => fileInputRef.current?.click()}
                 className={clsx(
                   "relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed",
@@ -477,18 +393,11 @@ export default function DataIngestionClient() {
                   <p className="text-sm font-semibold text-slate-700">
                     {dragging ? "Drop it here" : "Drag & drop or click to browse"}
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">CSV · Excel (.xlsx, .xls)</p>
+                  <p className="text-xs text-slate-400 mt-1">CSV · Excel (.xlsx, .xls) · Max 50 MB</p>
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
+                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls"
                   className="absolute inset-0 opacity-0 cursor-pointer"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) acceptFile(f);
-                  }}
-                />
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) acceptFile(f); }} />
               </div>
             ) : (
               <div className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-slate-50/60">
@@ -499,7 +408,7 @@ export default function DataIngestionClient() {
                   <p className="text-sm font-semibold text-slate-800 truncate">{selectedFile.name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {(selectedFile.size / 1024).toFixed(0)} KB ·{" "}
-                    {selectedFile.name.split(".").pop()?.toUpperCase()} · {getSelectionLabel()}
+                    {selectedFile.name.split(".").pop()?.toUpperCase()} · {dataType.label}
                   </p>
                 </div>
                 {!uploading && (
@@ -519,47 +428,39 @@ export default function DataIngestionClient() {
             )}
           </div>
 
-          {/* Run ingestion */}
           {selectedFile && (
             <div className="border-t border-slate-100 px-5 py-4 flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs text-slate-500">
-                  Ready to ingest{" "}
+                  Ready to import{" "}
                   <span className="font-semibold text-slate-700">{selectedFile.name}</span>
-                  {" "}as{" "}
-                  <span className="font-semibold text-nexora-600">{getSelectionLabel()}</span>
                 </p>
                 {(uploading || progress > 0) && (
                   <div className="mt-2 space-y-1">
                     <p className="text-[10px] text-slate-400">
-                      {progress < 20 ? "Parsing file..." :
-                       progress < 50 ? "Mapping fields..." :
-                       progress < 80 ? "Cleaning data..." :
-                       progress < 100 ? "Writing to database..." : "Complete!"}
+                      {progress < 20 ? "Parsing file…" :
+                       progress < 50 ? "Mapping fields…" :
+                       progress < 80 ? "Cleaning data…" :
+                       progress < 100 ? "Writing to database…" : "Complete!"}
                     </p>
                     <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden w-48">
-                      <div
-                        className={clsx("h-full rounded-full transition-all duration-300",
-                          progress === 100 ? "bg-emerald-500" : "bg-nexora-500")}
-                        style={{ width: `${progress}%` }}
-                      />
+                      <div className={clsx("h-full rounded-full transition-all duration-300",
+                        progress === 100 ? "bg-emerald-500" : "bg-nexora-500")}
+                        style={{ width: `${progress}%` }} />
                     </div>
                   </div>
                 )}
               </div>
-              <button
-                onClick={handleUpload}
-                disabled={uploading}
+              <button onClick={handleUpload} disabled={uploading}
                 className={clsx(
                   "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all shrink-0",
                   uploading
                     ? "bg-nexora-100 text-nexora-300 cursor-not-allowed"
                     : "bg-nexora-600 text-white hover:bg-nexora-700 shadow-sm shadow-nexora-200"
-                )}
-              >
+                )}>
                 {uploading
-                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</>
-                  : <><Upload className="w-4 h-4" /> Run Ingestion</>
+                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing…</>
+                  : <><Upload className="w-4 h-4" /> Import File</>
                 }
               </button>
             </div>
@@ -567,18 +468,15 @@ export default function DataIngestionClient() {
         </div>
       )}
 
-      {/* ── STEP 4: Result ── */}
+      {/* ── Result ── */}
       {result && (
         <div className="space-y-4">
-          {/* Status banner */}
           <div className={clsx(
             "rounded-2xl border p-5 flex items-start gap-4",
             result.success ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
           )}>
-            <div className={clsx(
-              "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-              result.success ? "bg-emerald-100" : "bg-amber-100"
-            )}>
+            <div className={clsx("w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+              result.success ? "bg-emerald-100" : "bg-amber-100")}>
               {result.success
                 ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 : <AlertTriangle className="w-5 h-5 text-amber-600" />}
@@ -586,26 +484,22 @@ export default function DataIngestionClient() {
             <div className="flex-1">
               <p className={clsx("text-sm font-bold",
                 result.success ? "text-emerald-800" : "text-amber-800")}>
-                {result.success ? "Ingestion Complete" : "Ingestion Completed with Warnings"}
+                {result.success ? "Import Complete" : "Import Completed with Warnings"}
               </p>
               <p className={clsx("text-xs mt-0.5",
                 result.success ? "text-emerald-600" : "text-amber-600")}>
-                {result.fileName} · {getSelectionLabel()} · {result.durationMs}ms
+                {result.fileName} · {dataType?.label} · {result.durationMs}ms
               </p>
             </div>
-            <button
-              onClick={reset}
-              className={clsx(
-                "text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors shrink-0",
+            <button onClick={reset}
+              className={clsx("text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors shrink-0",
                 result.success
                   ? "border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-                  : "border-amber-300 text-amber-700 hover:bg-amber-100"
-              )}>
-              Upload Another
+                  : "border-amber-300 text-amber-700 hover:bg-amber-100")}>
+              Import Another
             </button>
           </div>
 
-          {/* Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Rows Received",  value: result.rowsReceived,  color: "text-slate-700",   bg: "bg-white" },
@@ -620,7 +514,6 @@ export default function DataIngestionClient() {
             ))}
           </div>
 
-          {/* Quality log */}
           {result.qualityLog.length > 0 && (
             <div className="card overflow-hidden">
               <div className="card-header flex items-center justify-between">
@@ -649,7 +542,6 @@ export default function DataIngestionClient() {
             </div>
           )}
 
-          {/* Errors */}
           {result.errors.filter(Boolean).length > 0 && (
             <div className="card overflow-hidden">
               <div className="card-header">
@@ -666,7 +558,6 @@ export default function DataIngestionClient() {
             </div>
           )}
 
-          {/* Dashboard refresh CTA */}
           {result.success && result.rowsProcessed > 0 && (
             <div className="rounded-2xl bg-gradient-to-r from-nexora-50 to-purple-50 border border-nexora-100 p-5 flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-nexora-100 flex items-center justify-center shrink-0">
@@ -675,7 +566,7 @@ export default function DataIngestionClient() {
               <div className="flex-1">
                 <p className="text-sm font-bold text-nexora-800">Dashboards Updated</p>
                 <p className="text-xs text-nexora-600 mt-0.5">
-                  {result.rowsProcessed.toLocaleString()} rows written to the database. All dashboard pages will reflect the new data on next load.
+                  {result.rowsProcessed.toLocaleString()} rows written. All dashboard pages will reflect the new data on next load.
                 </p>
               </div>
               <a href="/" className="flex items-center gap-1.5 text-xs font-bold text-nexora-700 hover:text-nexora-800 shrink-0">
