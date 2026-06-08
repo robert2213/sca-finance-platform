@@ -172,7 +172,7 @@ export default function DataIngestionClient() {
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 Upload any financial file — exported from QuickBooks, Stripe, SAP, or built manually.
-                Nexora maps the columns automatically.
+                Column mapping is applied automatically.
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {["Transactions","Budget","Vendors","Headcount","Contractors"].map(t => (

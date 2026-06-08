@@ -58,7 +58,7 @@ export default function DataIngestionPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {[
             { step: "1", label: "Parse",    desc: "CSV / Excel parsed into rows",         color: "bg-blue-50 border-blue-100 text-blue-700" },
-            { step: "2", label: "Map",      desc: "Fields mapped to Nexora data model",   color: "bg-nexora-50 border-nexora-100 text-nexora-700" },
+            { step: "2", label: "Map",      desc: "Fields mapped to finance data model",   color: "bg-nexora-50 border-nexora-100 text-nexora-700" },
             { step: "3", label: "Clean",    desc: "Dates, amounts, dupes, anomalies",     color: "bg-purple-50 border-purple-100 text-purple-700" },
             { step: "4", label: "Write",    desc: "MERGE into fact_transactions / dims",  color: "bg-emerald-50 border-emerald-100 text-emerald-700" },
             { step: "5", label: "Refresh",  desc: "Dashboard pages reload live data",     color: "bg-amber-50 border-amber-100 text-amber-700" },

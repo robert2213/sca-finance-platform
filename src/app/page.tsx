@@ -196,7 +196,7 @@ export default async function DashboardPage() {
         <ExecutiveSummaryBox
           agentName="CFO Agent"
           agentAvatar="🏦"
-          summary={`IT organization is tracking ${formatPercent(ytdVarPct)} unfavorable versus the approved annual plan through May 2026. Primary drivers are cloud infrastructure acceleration tied to the Nexora AI platform roadmap and scope expansion in external labor. Three vendor contracts require immediate procurement attention before Q2 close.`}
+          summary={`IT organization is tracking ${formatPercent(ytdVarPct)} unfavorable versus the approved annual plan through May 2026. Primary drivers are cloud infrastructure acceleration tied to the approved digital platform roadmap and scope expansion in external labor. Three vendor contracts require immediate procurement attention before Q2 close.`}
           keyPoints={[
             `YTD: ${formatCurrency(ytdActual, true)} actual vs. ${formatCurrency(ytdBudget, true)} budget — ${formatCurrency(ytdVar, true)} (${formatPercent(ytdVarPct)}) unfavorable`,
             "Cloud Engineering and Data & Analytics are primary overage drivers",

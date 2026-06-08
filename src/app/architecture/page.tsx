@@ -92,7 +92,7 @@ const STAGES: Stage[] = [
   {
     n: 4,
     icon: LayoutDashboard,
-    title: "Nexora Analytics Platform",
+    title: "Finance Analytics Platform",
     desc: "Decision-makers gain real-time visibility into financial performance across every business unit and spend category.",
     items: ["Executive Dashboard", "Variance Analysis", "Risk Monitoring", "KPI Tracking", "Spend Analysis", "Forecast Workbench"],
     type: "chips",
@@ -367,7 +367,7 @@ function ImpactSection() {
         <span className="section-heading-bar" />
         <span className="section-heading-text">
           Business Impact
-          <span className="section-heading-sub">What Nexora delivers to finance leadership</span>
+          <span className="section-heading-sub">What this platform delivers to finance leadership</span>
         </span>
       </div>
 
@@ -413,7 +413,7 @@ function PersonasSection() {
         <span className="section-heading-bar" />
         <span className="section-heading-text">
           Built for Finance Leadership
-          <span className="section-heading-sub">Nexora serves every layer of the finance organization</span>
+          <span className="section-heading-sub">Built for every layer of the finance organization</span>
         </span>
       </div>
 
@@ -484,7 +484,7 @@ const WORKFLOW: WorkflowStep[] = [
     n: 6,
     icon: FileText,
     title: "Executive Commentary",
-    desc: "Nexora converts analysis into leadership-ready narrative, variance explanations, and recommended actions.",
+    desc: "AI agents convert analysis into leadership-ready narrative, variance explanations, and recommended actions.",
   },
   {
     n: 7,
@@ -603,20 +603,20 @@ export default function ArchitecturePage() {
   return (
     <PageWrapper
       title="System Architecture"
-      subtitle="Nexora Finance Command Center — from raw financial data to executive decision support"
+      subtitle="Finance Command Center — from raw financial data to executive decision support"
       badge="Platform"
     >
       {/* Hero */}
       <div className="text-center mb-6 max-w-2xl mx-auto">
         <h2 className="text-2xl font-black text-slate-900 dark:text-slate-100 mb-2 leading-tight tracking-tight">
-          Nexora Finance Command Center{" "}
+          Finance Command Center{" "}
           <span className="gradient-text">Architecture</span>
         </h2>
         <p className="text-[14px] text-slate-500 dark:text-slate-400">
           From Raw Financial Data to Executive Decision Support
         </p>
         <p className="text-[12px] text-slate-400 dark:text-slate-500 mt-2">
-          Nexora connects fragmented financial data to dashboards, AI-assisted analysis, and executive reporting workflows.
+          This platform connects fragmented financial data to dashboards, AI-assisted analysis, and executive reporting workflows.
         </p>
       </div>
 

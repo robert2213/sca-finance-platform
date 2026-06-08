@@ -91,7 +91,7 @@ export default async function CIOPage() {
         <ExecutiveSummaryBox
           agentName="CIO Finance Partner Agent"
           agentAvatar="💡"
-          summary={`Total IT investment YTD is ${formatCurrency(totalIT)}, tracking ${formatPercent((totalIT - itBudget) / itBudget)} unfavorable vs. plan. Cloud spend of ${formatCurrency(totalCloud)} represents ${(cloudPct * 100).toFixed(0)}% of total IT spend and is the primary driver of the budget variance. This acceleration is strategically aligned with the Nexora AI platform roadmap approved by the Board in Q4 2025. A structured FinOps optimization program targeting $350K in cloud savings is underway, with results expected in Q4 2026.`}
+          summary={`Total IT investment YTD is ${formatCurrency(totalIT)}, tracking ${formatPercent((totalIT - itBudget) / itBudget)} unfavorable vs. plan. Cloud spend of ${formatCurrency(totalCloud)} represents ${(cloudPct * 100).toFixed(0)}% of total IT spend and is the primary driver of the budget variance. This acceleration is strategically aligned with the digital platform roadmap approved by the Board in Q4 2025. A structured FinOps optimization program targeting $350K in cloud savings is underway, with results expected in Q4 2026.`}
           keyPoints={[
             `Cloud YTD: ${formatCurrency(totalCloud)} — ${formatPercent((totalCloud - cloudBudget) / cloudBudget)} vs. budget | Primary driver: AWS EC2 + GCP Vertex AI`,
             "AWS is the largest single provider at 51% of cloud spend — EDP renewal due June 30 is #1 procurement priority",

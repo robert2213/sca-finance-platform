@@ -67,7 +67,7 @@ export default function ExecutiveSummaryBox({
         {/* Footer */}
         <div className="px-6 py-3 border-t border-nexora-800/50 flex items-center justify-between">
           <p className="text-[10px] text-nexora-600">
-            Powered by Nexora AI · Mock mode · No data leaves your browser
+            AI Finance Platform · Mock mode · No data leaves your browser
           </p>
           <p className="text-[10px] text-nexora-600">YTD May 2026</p>
         </div>

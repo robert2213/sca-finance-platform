@@ -47,13 +47,17 @@ interface ConversationContext {
 
 // ─── Route registry ───────────────────────────────────────────────────────────
 
-const routeMap: Record<AgentId, RouteDefinition[]> = {
+// finance-bp and validation use cfo/fpa fallback responses in mock mode.
+// When the real Claude path is active these agentIds are handled by the LLM directly.
+const routeMap: Partial<Record<AgentId, RouteDefinition[]>> = {
   cfo:             cfoResponses,
   fpa:             fpaResponses,
   procurement:     procurementResponses,
   "external-labor": externalLaborResponses,
   headcount:       headcountResponses,
   cio:             cioResponses,
+  "finance-bp":    fpaResponses,   // fallback: FP&A responses cover most BP queries
+  validation:      cfoResponses,   // fallback: CFO summary used as validation default
 };
 
 // ─── Keyword scorer ───────────────────────────────────────────────────────────

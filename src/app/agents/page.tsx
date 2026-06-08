@@ -40,7 +40,7 @@ export default function AgentsPage() {
             <div className="shrink-0 text-4xl">🤖</div>
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-black text-white mb-2 tracking-tight">
-                Nexora AI Finance Team
+                AI Finance Team
               </h2>
               <p className="text-nexora-200 text-sm leading-relaxed max-w-2xl">
                 Each agent specializes in a distinct domain of IT Finance. Ask in natural language

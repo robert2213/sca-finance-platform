@@ -104,8 +104,17 @@ export interface CloudSpendRecord {
 
 // ─── Agent Types ──────────────────────────────────────────────────────────────
 
+// Canonical AgentId — single source of truth.
+// src/lib/agents/agent.types.ts re-exports this; do not re-define there.
 export type AgentId =
-  | "cfo" | "fpa" | "procurement" | "external-labor" | "headcount" | "cio";
+  | "cfo"
+  | "fpa"
+  | "procurement"
+  | "external-labor"
+  | "headcount"
+  | "cio"
+  | "finance-bp"
+  | "validation";
 
 export interface AgentMessage {
   role: "user" | "agent";
@@ -114,7 +123,9 @@ export interface AgentMessage {
   agentId?: AgentId;
 }
 
-export interface AgentContext {
+// Legacy lightweight context (conversation layer).
+// The richer AgentContext used by the agent registry lives in src/lib/agents/agent.types.ts.
+export interface AgentConversationContext {
   question: string;
   agentId: AgentId;
 }
