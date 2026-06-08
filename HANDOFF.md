@@ -786,3 +786,114 @@ Route: `/architecture`
 - Example Workflow section could link to live demo of each step when commentary agent is complete
 - Persona cards could deep-link to relevant dashboard pages
 - Consider adding a "Request Demo" CTA at bottom of architecture page for Sin City Analytics client acquisition
+
+---
+
+## Session Update — June 8, 2026
+
+### Updated: Data Ingestion Page — Full UX Redesign
+
+Route: `/data-ingestion`
+
+**What changed and why:**
+
+The original Data Ingestion page exposed the internal API parameter `sourceSystem` directly as a user-facing choice (GL Export, Budget Export, Payroll, Vendor File, QuickBooks, Stripe, Other). This was a developer abstraction, not a user mental model — a finance analyst does not think "I have a GL Export file"; they think "I want to import my transactions."
+
+Three redesign passes were made during this session:
+
+**Pass 1 — 3-path taxonomy**
+
+Introduced a top-level method choice with three options:
+- Connected Source (API pull — live integrations)
+- Export File Upload (file exported from a known system → pick system → upload)
+- Manual Upload (user-built spreadsheet → pick data type → upload)
+
+Issue: Export File Upload and Manual Upload were functionally identical (both upload a CSV/Excel to the same `/api/ingest` endpoint). The distinction added friction without adding value.
+
+**Pass 2 — 2-path taxonomy**
+
+Merged Export File Upload and Manual Upload into a single **Import File** path.
+
+Flow: Choose method (Connected Source / Import File) → for Import File: pick data type (5 options) → upload dropzone.
+
+Issue: The data type picker was still a full screen gate before the user could upload anything. A user who just wants to drop a file had to make a category selection first.
+
+**Pass 3 (final) — Dropzone first, data type inline**
+
+Import File now goes **directly to the dropzone**. No intermediate screen.
+
+Flow:
+1. Home: `Connected Source` | `Import File`
+2. Import File → dropzone (drag or click opens file browser immediately)
+3. After file is selected → 5 data type pills appear inline below the file row
+4. Footer shows `[data type] · [filename]` + **Import File** button
+
+Data type defaults to **Actuals & Transactions** (covers ~80% of imports). User can change with one click. Never a gate.
+
+**`sourceSystem` derivation (invisible to user):**
+
+| Data Type pill selected | `sourceSystem` sent to API |
+|---|---|
+| Actuals & Transactions | `gl-export` |
+| Budget & Plan | `budget-export` |
+| Vendor Contracts | `vendors` |
+| Headcount | `headcount` |
+| External Labor | `contractors` |
+
+The field mapping logic in `src/lib/ingestion/field-mapper.ts` is unchanged — it still uses the same alias lists per source system. The UI change is purely in how the selection is presented and when it's made.
+
+**Files modified:**
+
+| File | Change |
+|---|---|
+| `src/app/data-ingestion/DataIngestionClient.tsx` | Full rewrite — 3 passes, final is ~260 lines vs original ~460 |
+| `src/app/data-ingestion/page.tsx` | Subtitle and section header text updated to match new taxonomy |
+
+**Connected Source state:**
+
+Connected Source shows 6 "Coming Soon" cards (Stripe, QuickBooks, Square, SAP, NetSuite, Salesforce). These are placeholders. The path is live in the UI with a link to "Import a file instead →". No API integrations are built. When direct integrations are added, this path becomes the primary entry point for recurring data pulls.
+
+**Build + deploy:**
+
+- Local dev server: `http://localhost:3000` — hot-reloaded, verified clean compile
+- GitHub: `https://github.com/robert2213/nexora-ai-finance` — pushed to `main`
+- Vercel (live): `https://sca-finance-platform-dukhxkon6.vercel.app` — auto-deploys from `main`
+
+**Correction from prior session notes:**
+
+The live deployment is on **Vercel**, not Netlify. The Netlify URL (`resilient-donut-1d6cbd.netlify.app`) visible in earlier session screenshots belonged to a different project open in the browser. The `.vercel` local directory is gitignored and was not present in the file listing, which caused the confusion.
+
+---
+
+### Context: Synthetic Dataset Objective (deferred)
+
+The original objective for this session was to generate and load a 12-month synthetic financial dataset into Databricks Delta. This was not completed — the session pivoted to the Data Ingestion UI redesign instead.
+
+**Dataset spec (ready to execute next session):**
+
+- Company: Nexora Technologies, $50M annual OpEx
+- Fiscal year: January–December 2026
+- 6 business units: Cloud Engineering, Data & Analytics, Infrastructure, Security, Enterprise Apps, IT Operations
+- Tables: `fact_transactions` (1,000+ rows), `dim_vendor` (25+), `dim_cost_center` (6+), `dim_period` (12), `dim_headcount` (50+), `dim_contractor` (15+)
+- Variance story baked into the numbers:
+  - Cloud Engineering: +15% (AWS compute spike Q2)
+  - Software Licensing: trending over (Snowflake consumption)
+  - Infrastructure: under budget (hardware refresh delayed to Q3)
+  - Security: on track
+  - Enterprise Apps: slight overage (unplanned ServiceNow licensing)
+  - External Labor: over budget in Data & Analytics (backfill contractors)
+  - Headcount: under budget (8 open reqs unfilled since Q1)
+- Output CSVs: `tests/synthetic-data/` (directory exists in repo)
+- Load via: `POST /api/ingest` per table
+- Databricks credentials: `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH` in `.env.local`
+
+**Next session priorities:**
+
+1. Generate all 6 synthetic dataset CSVs with the variance story embedded
+2. Validate referential integrity before loading
+3. Clear existing `fact_transactions` data
+4. Upload each file through `/api/ingest`
+5. Verify row counts in Databricks post-load
+6. Run variance query to confirm the story is visible in the numbers
+7. Confirm all 6 dashboard pages reflect the new dataset
+8. Output data summary for commentary agent input
