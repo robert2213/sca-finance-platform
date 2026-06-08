@@ -130,11 +130,20 @@ export interface AgentConversationContext {
   agentId: AgentId;
 }
 
+export type ConfidenceLevel = "High" | "Medium" | "Low";
+
 export interface AgentResponse {
   answer: string;
   keyPoints: string[];
   riskFlags: RiskFlag[];
   actions: RecommendedAction[];
+
+  // ── Governance fields (populated by live Claude; omitted in mock mode) ───────
+  confidence?: ConfidenceLevel;         // overall confidence in the response
+  dataCitations?: string[];             // specific metrics cited (e.g. "YTD actual $2.4M")
+  assumptions?: string[];               // what was inferred vs. explicitly stated in data
+  missingData?: string[];               // data gaps that could affect the analysis
+  mode?: "live" | "mock";               // which path produced this response
 }
 
 // ─── Risk & Alerts ────────────────────────────────────────────────────────────

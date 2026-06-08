@@ -34,6 +34,7 @@ export interface FactTransaction {
   amount_forecast: number;
   transaction_type: "actual" | "budget" | "forecast";
   source_system: string;
+  client_id: string;      // multi-tenant identifier — required for all new writes
 }
 
 /** A mapped dim_headcount record. */
@@ -48,6 +49,7 @@ export interface HeadcountRecord {
   fill_date: string | null;
   annual_salary: number;
   is_backfill: boolean;
+  client_id: string;
 }
 
 /** A mapped dim_contractor record. */
@@ -65,6 +67,7 @@ export interface ContractorRecord {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  client_id: string;
 }
 
 /** A mapped dim_cost_center record. */
@@ -74,6 +77,7 @@ export interface CostCenterRecord {
   department: string;
   owner: string | null;
   budget_owner: string | null;
+  client_id: string;
 }
 
 /** A mapped dim_period record. */
@@ -100,6 +104,7 @@ export interface VendorRecord {
   auto_renew: boolean;
   risk_level: "Low" | "Medium" | "High";
   status: string;
+  client_id: string;
 }
 
 /** Actions logged to data_quality_log. */

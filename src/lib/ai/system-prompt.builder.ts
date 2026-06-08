@@ -139,6 +139,19 @@ You MUST respond with valid JSON only. No text before or after the JSON object.
       "owner": "Who should own this action",
       "dueDate": "YYYY-MM-DD"
     }
+  ],
+  "confidence": "High",
+  "dataCitations": [
+    "YTD IT Spend: $X.XM (from fact_transactions, transaction_type=actual)",
+    "Each citation names the exact metric and its source in the data block"
+  ],
+  "assumptions": [
+    "Any inference made beyond what the data explicitly states",
+    "E.g.: 'Assumed budget is evenly distributed across months since monthly budget is not provided'"
+  ],
+  "missingData": [
+    "Any data gaps that reduce confidence or limit the analysis",
+    "E.g.: 'Forecast data not present for Q3/Q4 — full-year projection is estimated'"
   ]
 }
 
@@ -146,8 +159,12 @@ Constraints:
 - "answer" must be substantive (200+ words for financial questions)
 - "keyPoints" must reference specific numbers from the data
 - "actions" should be concrete and finance-specific (0-4 items)
+- "confidence": "High" if all key data is present and numbers support clear conclusions; "Medium" if data is partial or trends are ambiguous; "Low" if critical data is missing
+- "dataCitations": list every specific number you cite (3-6 items) — include the value and its source field
+- "assumptions": list anything you inferred that isn't explicitly in the data (0-3 items)
+- "missingData": list data gaps that matter for this question (0-3 items; empty array [] if data is complete)
 - Never invent data not present in the Financial Data block above
-- If data is missing or incomplete, say so explicitly in the answer
+- If data is missing or incomplete, say so explicitly in the answer AND in "missingData"
 `.trim();
 
   return [roleBlock, dataBlock, responseFormat].join("\n\n---\n\n");

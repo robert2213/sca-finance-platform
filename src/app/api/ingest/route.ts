@@ -11,6 +11,7 @@ import {
   writeHeadcount, writeContractors, writeCostCenters, writePeriods,
 } from "@/lib/ingestion/writer";
 import type { IngestionResult, SourceSystem } from "@/lib/ingestion/types";
+import defaultConfig from "@/config/client.config";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
@@ -97,6 +98,8 @@ export async function POST(request: NextRequest) {
   }
 
   const rowsReceived = parsed.rows.length;
+  // Use active client from config — replaced by session clientId once Clerk is wired
+  const clientId = defaultConfig.clientId;
 
   // ─── Map → Clean → Write ────────────────────────────────────────────────────
 
@@ -107,7 +110,7 @@ export async function POST(request: NextRequest) {
 
   if (sourceSystem === "vendors") {
     // Vendor records → dim_vendor
-    const { vendors: mapped, unmapped } = mapToVendors(parsed.rows, sourceSystem);
+    const { vendors: mapped, unmapped } = mapToVendors(parsed.rows, sourceSystem, clientId);
     rowsSkipped += unmapped.length;
 
     const { cleaned, qualityLog } = cleanVendors(mapped);
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (sourceSystem === "headcount") {
-    const { headcount: mapped, unmapped } = mapToHeadcount(parsed.rows);
+    const { headcount: mapped, unmapped } = mapToHeadcount(parsed.rows, clientId);
     rowsSkipped += unmapped.length;
     const { written, errors: writeErrors } = await writeHeadcount(mapped);
     rowsProcessed = written;
@@ -145,7 +148,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (sourceSystem === "contractors") {
-    const { contractors: mapped, unmapped } = mapToContractors(parsed.rows);
+    const { contractors: mapped, unmapped } = mapToContractors(parsed.rows, clientId);
     rowsSkipped += unmapped.length;
     const { written, errors: writeErrors } = await writeContractors(mapped);
     rowsProcessed = written;
@@ -159,7 +162,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (sourceSystem === "cost-centers") {
-    const { costCenters: mapped, unmapped } = mapToCostCenters(parsed.rows);
+    const { costCenters: mapped, unmapped } = mapToCostCenters(parsed.rows, clientId);
     rowsSkipped += unmapped.length;
     const { written, errors: writeErrors } = await writeCostCenters(mapped);
     rowsProcessed = written;
@@ -189,7 +192,8 @@ export async function POST(request: NextRequest) {
   // All other source systems → fact_transactions
   const { transactions: mapped, unmapped } = mapToFactTransactions(
     parsed.rows,
-    sourceSystem
+    sourceSystem,
+    clientId
   );
   rowsSkipped += unmapped.length;
   if (unmapped.length) {

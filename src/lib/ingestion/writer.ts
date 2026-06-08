@@ -45,6 +45,7 @@ export async function writeTransactions(
         amount_forecast:  t.amount_forecast,
         transaction_type: t.transaction_type,
         source_system:    t.source_system,
+        client_id:        t.client_id,
       }))
     );
     return { written: transactions.length, errors };
@@ -66,7 +67,7 @@ export async function writeTransactions(
         `${t.subcategory ? `'${esc(t.subcategory)}'` : "NULL"},` +
         `'${esc(t.business_unit)}',` +
         `${t.amount_actual},${t.amount_budget},${t.amount_forecast},` +
-        `'${t.transaction_type}','${esc(t.source_system)}')`
+        `'${t.transaction_type}','${esc(t.source_system)}','${esc(t.client_id)}')`
       )
       .join(",\n");
 
@@ -77,7 +78,7 @@ export async function writeTransactions(
         AS src(transaction_id, date, period, cost_center_id, cost_center_name,
                vendor_id, category, subcategory, business_unit,
                amount_actual, amount_budget, amount_forecast,
-               transaction_type, source_system)
+               transaction_type, source_system, client_id)
       ) AS source ON target.transaction_id = source.transaction_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
@@ -120,6 +121,7 @@ export async function writeVendors(
         auto_renew:      v.auto_renew ? 1 : 0,
         risk_level:      v.risk_level,
         status:          v.status,
+        client_id:       v.client_id,
       }))
     );
     return { written: vendors.length, errors };
@@ -137,7 +139,7 @@ export async function writeVendors(
         `${v.contract_start ? `'${v.contract_start}'` : "NULL"},` +
         `${v.contract_end ? `'${v.contract_end}'` : "NULL"},` +
         `${v.contract_value},${v.ytd_spend},${v.remaining},` +
-        `'${esc(v.business_unit)}',${v.auto_renew ? 1 : 0},'${v.risk_level}','${esc(v.status)}')`
+        `'${esc(v.business_unit)}',${v.auto_renew ? 1 : 0},'${v.risk_level}','${esc(v.status)}','${esc(v.client_id)}')`
       )
       .join(",\n");
 
@@ -147,7 +149,7 @@ export async function writeVendors(
         SELECT * FROM VALUES ${values}
         AS src(vendor_id, vendor_name, vendor_category, contract_start,
                contract_end, contract_value, ytd_spend, remaining,
-               business_unit, auto_renew, risk_level, status)
+               business_unit, auto_renew, risk_level, status, client_id)
       ) AS source ON target.vendor_id = source.vendor_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
@@ -231,6 +233,7 @@ export async function writeHeadcount(
         fill_date:     h.fill_date ?? null,
         annual_salary: h.annual_salary,
         is_backfill:   h.is_backfill ? 1 : 0,
+        client_id:     h.client_id,
       }))
     );
     return { written: records.length, errors };
@@ -247,7 +250,7 @@ export async function writeHeadcount(
         `${h.location ? `'${esc(h.location)}'` : "NULL"},` +
         `${h.open_date ? `'${h.open_date}'` : "NULL"},` +
         `${h.fill_date ? `'${h.fill_date}'` : "NULL"},` +
-        `${h.annual_salary},${h.is_backfill ? "true" : "false"})`
+        `${h.annual_salary},${h.is_backfill ? "true" : "false"},'${esc(h.client_id)}')`
       )
       .join(",\n");
 
@@ -256,7 +259,7 @@ export async function writeHeadcount(
       USING (
         SELECT * FROM VALUES ${values}
         AS src(position_id, title, business_unit, level, status,
-               location, open_date, fill_date, annual_salary, is_backfill)
+               location, open_date, fill_date, annual_salary, is_backfill, client_id)
       ) AS source ON target.position_id = source.position_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
@@ -298,6 +301,7 @@ export async function writeContractors(
         start_date:       c.start_date ?? null,
         end_date:         c.end_date ?? null,
         status:           c.status,
+        client_id:        c.client_id,
       }))
     );
     return { written: records.length, errors };
@@ -315,7 +319,7 @@ export async function writeContractors(
         `'${esc(c.business_unit)}',${c.monthly_rate},${c.ytd_spend},${c.budget},` +
         `${c.start_date ? `'${c.start_date}'` : "NULL"},` +
         `${c.end_date ? `'${c.end_date}'` : "NULL"},` +
-        `'${esc(c.status)}')`
+        `'${esc(c.status)}','${esc(c.client_id)}')`
       )
       .join(",\n");
 
@@ -325,7 +329,7 @@ export async function writeContractors(
         SELECT * FROM VALUES ${values}
         AS src(contractor_id, contractor_name, role, vendor, cost_center_id,
                cost_center_name, business_unit, monthly_rate, ytd_spend, budget,
-               start_date, end_date, status)
+               start_date, end_date, status, client_id)
       ) AS source ON target.contractor_id = source.contractor_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
@@ -359,6 +363,7 @@ export async function writeCostCenters(
         department:       c.department,
         owner:            c.owner ?? null,
         budget_owner:     c.budget_owner ?? null,
+        client_id:        c.client_id,
       }))
     );
     return { written: records.length, errors };
@@ -368,7 +373,7 @@ export async function writeCostCenters(
     .map((c) =>
       `('${esc(c.cost_center_id)}','${esc(c.cost_center_name)}','${esc(c.department)}',` +
       `${c.owner ? `'${esc(c.owner)}'` : "NULL"},` +
-      `${c.budget_owner ? `'${esc(c.budget_owner)}'` : "NULL"})`
+      `${c.budget_owner ? `'${esc(c.budget_owner)}'` : "NULL"},'${esc(c.client_id)}')`
     )
     .join(",\n");
 
@@ -376,7 +381,7 @@ export async function writeCostCenters(
     MERGE INTO dim_cost_center AS target
     USING (
       SELECT * FROM VALUES ${values}
-      AS src(cost_center_id, cost_center_name, department, owner, budget_owner)
+      AS src(cost_center_id, cost_center_name, department, owner, budget_owner, client_id)
     ) AS source ON target.cost_center_id = source.cost_center_id
     WHEN MATCHED THEN UPDATE SET *
     WHEN NOT MATCHED THEN INSERT *

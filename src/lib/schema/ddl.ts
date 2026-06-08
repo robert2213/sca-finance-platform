@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS fact_transactions (
   amount_budget     DOUBLE        NOT NULL,
   amount_forecast   DOUBLE        NOT NULL,
   transaction_type  STRING        NOT NULL  COMMENT 'actual | budget | forecast',
-  source_system     STRING        NOT NULL  COMMENT 'gl-export | payroll | quickbooks | stripe | static'
+  source_system     STRING        NOT NULL  COMMENT 'gl-export | payroll | quickbooks | stripe | static',
+  client_id         STRING                  COMMENT 'Multi-tenant client identifier — required before first client go-live'
 )
 USING DELTA
 PARTITIONED BY (period)
@@ -52,7 +53,8 @@ CREATE TABLE IF NOT EXISTS dim_vendor (
   business_unit     STRING,
   auto_renew        BOOLEAN NOT NULL,
   risk_level        STRING  NOT NULL  COMMENT 'Low | Medium | High',
-  status            STRING  NOT NULL
+  status            STRING  NOT NULL,
+  client_id         STRING            COMMENT 'Multi-tenant client identifier'
 )
 USING DELTA
 COMMENT 'Vendor master — contracts, spend, and risk'
@@ -64,7 +66,8 @@ CREATE TABLE IF NOT EXISTS dim_cost_center (
   cost_center_name  STRING  NOT NULL,
   department        STRING  NOT NULL,
   owner             STRING,
-  budget_owner      STRING
+  budget_owner      STRING,
+  client_id         STRING  COMMENT 'Multi-tenant client identifier'
 )
 USING DELTA
 COMMENT 'Cost center master'
@@ -97,7 +100,8 @@ CREATE TABLE IF NOT EXISTS dim_contractor (
   budget            DOUBLE  NOT NULL,
   start_date        DATE,
   end_date          DATE,
-  status            STRING  NOT NULL
+  status            STRING  NOT NULL,
+  client_id         STRING  COMMENT 'Multi-tenant client identifier'
 )
 USING DELTA
 COMMENT 'External labor / contractor engagements'
@@ -114,7 +118,8 @@ CREATE TABLE IF NOT EXISTS dim_headcount (
   open_date      DATE,
   fill_date      DATE,
   annual_salary  DOUBLE  NOT NULL,
-  is_backfill    BOOLEAN NOT NULL
+  is_backfill    BOOLEAN NOT NULL,
+  client_id      STRING  COMMENT 'Multi-tenant client identifier'
 )
 USING DELTA
 COMMENT 'Headcount plan and position roster'

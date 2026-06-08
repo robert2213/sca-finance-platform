@@ -136,7 +136,8 @@ function generateTxId(
 
 export function mapToFactTransactions(
   rows: RawRow[],
-  source: SourceSystem
+  source: SourceSystem,
+  clientId = "demo-client"
 ): { transactions: FactTransaction[]; unmapped: number[] } {
   const transactions: FactTransaction[] = [];
   const unmapped: number[] = [];
@@ -185,6 +186,7 @@ export function mapToFactTransactions(
       amount_forecast: amountForecast,
       transaction_type: txType,
       source_system: source,
+      client_id: clientId,
     });
   }
 
@@ -195,7 +197,8 @@ export function mapToFactTransactions(
 
 export function mapToVendors(
   rows: RawRow[],
-  source: SourceSystem
+  source: SourceSystem,
+  clientId = "demo-client"
 ): { vendors: VendorRecord[]; unmapped: number[] } {
   const vendors: VendorRecord[] = [];
   const unmapped: number[] = [];
@@ -230,6 +233,7 @@ export function mapToVendors(
       })(),
       risk_level: riskLevel,
       status: String(findColumn(row, ["status","vendor status","engagement status"]) ?? "Active").trim() || "Active",
+      client_id: clientId,
     });
   }
 
@@ -249,7 +253,8 @@ const HC_SALARY_ALIASES   = ["annual salary","annual_salary","salary","base sala
 const HC_BACKFILL_ALIASES = ["is backfill","is_backfill","backfill"];
 
 export function mapToHeadcount(
-  rows: RawRow[]
+  rows: RawRow[],
+  clientId = "demo-client"
 ): { headcount: HeadcountRecord[]; unmapped: number[] } {
   const headcount: HeadcountRecord[] = [];
   const unmapped: number[] = [];
@@ -278,6 +283,7 @@ export function mapToHeadcount(
       fill_date:     standardizeDate(findColumn(row, HC_FILL_ALIASES) as string | null) || null,
       annual_salary: parseAmount(rawSalary),
       is_backfill:   rawBackfill === "true" || rawBackfill === "1" || rawBackfill === "yes",
+      client_id:     clientId,
     });
   }
 
@@ -298,7 +304,8 @@ const CTR_END_ALIASES     = ["end date","end_date","engagement end","to","throug
 const CTR_STATUS_ALIASES  = ["status","engagement status"];
 
 export function mapToContractors(
-  rows: RawRow[]
+  rows: RawRow[],
+  clientId = "demo-client"
 ): { contractors: ContractorRecord[]; unmapped: number[] } {
   const contractors: ContractorRecord[] = [];
   const unmapped: number[] = [];
@@ -327,6 +334,7 @@ export function mapToContractors(
       start_date:       standardizeDate(findColumn(row, CTR_START_ALIASES) as string | null) || null,
       end_date:         standardizeDate(findColumn(row, CTR_END_ALIASES) as string | null) || null,
       status:           String(findColumn(row, CTR_STATUS_ALIASES) ?? "Active").trim(),
+      client_id:        clientId,
     });
   }
 
@@ -342,7 +350,8 @@ const CC_OWNER_ALIASES  = ["owner","cc owner","manager","lead"];
 const CC_BUDGET_OWNER_ALIASES = ["budget owner","budget_owner","financial owner","approver"];
 
 export function mapToCostCenters(
-  rows: RawRow[]
+  rows: RawRow[],
+  clientId = "demo-client"
 ): { costCenters: CostCenterRecord[]; unmapped: number[] } {
   const costCenters: CostCenterRecord[] = [];
   const unmapped: number[] = [];
@@ -358,6 +367,7 @@ export function mapToCostCenters(
       department:       String(findColumn(row, CC_DEPT_ALIASES) ?? "").trim(),
       owner:            String(findColumn(row, CC_OWNER_ALIASES) ?? "").trim() || null,
       budget_owner:     String(findColumn(row, CC_BUDGET_OWNER_ALIASES) ?? "").trim() || null,
+      client_id:        clientId,
     });
   }
 

@@ -50,5 +50,13 @@ export function cioRespond(question: string, history?: ConversationTurn[]): Agen
   return dispatchAgent("cio", question, history);
 }
 
+export function financeBpRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
+  return dispatchAgent("finance-bp", question, history);
+}
+
+export function validationRespond(question: string, history?: ConversationTurn[]): AgentResponseWithRoute {
+  return dispatchAgent("validation", question, history);
+}
+
 // Re-export ConversationTurn type for consumers
 export type { ConversationTurn };

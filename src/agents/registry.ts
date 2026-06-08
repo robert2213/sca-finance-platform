@@ -2,6 +2,7 @@ import type { AgentDefinition } from "./types";
 import {
   cfoRespond, fpaRespond, procurementRespond,
   externalLaborRespond, headcountRespond, cioRespond,
+  financeBpRespond, validationRespond,
 } from "./mockResponses";
 
 export const agentRegistry: AgentDefinition[] = [
@@ -100,6 +101,38 @@ export const agentRegistry: AgentDefinition[] = [
       "What is the full IT investment story for FY2026?",
     ],
     respond: cioRespond,
+  },
+  {
+    id: "finance-bp",
+    name: "Finance Business Partner",
+    title: "Business Unit Finance Advisor",
+    description: "Translates financial data into operational context for business unit leaders — variance explanations, budget owner guidance, and BU-level commentary.",
+    avatar: "🤝",
+    color: "teal",
+    capabilities: ["BU Commentary", "Budget Owner Guidance", "Variance Context", "Reforecast Support"],
+    suggestedQuestions: [
+      "Explain this month's variance to my business unit in plain language",
+      "Which cost centers in my BU need attention this month?",
+      "What does finance need from me to close the month?",
+      "How does my BU compare to plan for the year?",
+    ],
+    respond: financeBpRespond,
+  },
+  {
+    id: "validation",
+    name: "Data Quality Advisor",
+    title: "Ingestion Validation Specialist",
+    description: "Interprets validation results, prioritizes data errors by financial impact, and guides remediation before re-upload.",
+    avatar: "✅",
+    color: "slate",
+    capabilities: ["Error Triage", "Remediation Guidance", "Data Quality Trends", "Field Mapping Help"],
+    suggestedQuestions: [
+      "What errors were found in my last upload and how do I fix them?",
+      "Which validation errors will block my data from being processed?",
+      "How do I fix the missing cost center IDs in my GL export?",
+      "What percentage of my rows passed validation?",
+    ],
+    respond: validationRespond,
   },
 ];
 

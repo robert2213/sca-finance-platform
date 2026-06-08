@@ -1,7 +1,7 @@
 // Parses Claude's JSON response into the AgentResponse shape.
 // Fails gracefully — always returns a valid AgentResponse even if parsing fails.
 
-import type { AgentResponse } from "@/types/finance";
+import type { AgentResponse, ConfidenceLevel } from "@/types/finance";
 
 export function parseAgentResponse(rawText: string): AgentResponse {
   // Strip markdown code fences if Claude wrapped the JSON
@@ -26,6 +26,10 @@ export function parseAgentResponse(rawText: string): AgentResponse {
       answer?: unknown;
       keyPoints?: unknown;
       actions?: unknown;
+      confidence?: unknown;
+      dataCitations?: unknown;
+      assumptions?: unknown;
+      missingData?: unknown;
     };
 
     const answer = typeof parsed.answer === "string" && parsed.answer.trim()
@@ -52,7 +56,21 @@ export function parseAgentResponse(rawText: string): AgentResponse {
           }))
       : [];
 
-    return { answer, keyPoints, riskFlags: [], actions };
+    const confidence = validateConfidence(parsed.confidence) ?? undefined;
+
+    const dataCitations = Array.isArray(parsed.dataCitations)
+      ? parsed.dataCitations.filter((c): c is string => typeof c === "string").slice(0, 8)
+      : undefined;
+
+    const assumptions = Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.filter((a): a is string => typeof a === "string").slice(0, 5)
+      : undefined;
+
+    const missingData = Array.isArray(parsed.missingData)
+      ? parsed.missingData.filter((m): m is string => typeof m === "string").slice(0, 5)
+      : undefined;
+
+    return { answer, keyPoints, riskFlags: [], actions, confidence, dataCitations, assumptions, missingData };
 
   } catch {
     return fallback(rawText);
@@ -60,6 +78,11 @@ export function parseAgentResponse(rawText: string): AgentResponse {
 }
 
 function validatePriority(v: unknown): "High" | "Medium" | "Low" | null {
+  if (v === "High" || v === "Medium" || v === "Low") return v;
+  return null;
+}
+
+function validateConfidence(v: unknown): ConfidenceLevel | null {
   if (v === "High" || v === "Medium" || v === "Low") return v;
   return null;
 }

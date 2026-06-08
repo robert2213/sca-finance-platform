@@ -27,7 +27,7 @@ export default function AgentWorkspacePage({ params, searchParams }: Props) {
   );
 }
 
-// Pre-render all 6 agent workspaces as static pages
+// Pre-render all 8 agent workspaces as static pages
 export function generateStaticParams() {
   return [
     { agentId: "cfo" },
@@ -36,5 +36,7 @@ export function generateStaticParams() {
     { agentId: "external-labor" },
     { agentId: "headcount" },
     { agentId: "cio" },
+    { agentId: "finance-bp" },
+    { agentId: "validation" },
   ];
 }
