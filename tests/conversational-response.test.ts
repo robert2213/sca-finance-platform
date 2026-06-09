@@ -282,7 +282,7 @@ for (const agentId of AGENTS_TO_CHECK) {
   assertIncludes(
     `  → ${agentId} prompt contains RESPONSE RULES`,
     prompt,
-    "RESPONSE RULES"
+    "BEHAVIORAL CONSTRAINTS — NON-NEGOTIABLE"
   );
   assertIncludes(
     `  → ${agentId} prompt contains rule 1 (ANSWER THE QUESTION ASKED)`,
