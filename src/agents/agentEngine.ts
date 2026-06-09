@@ -97,16 +97,33 @@ const FOLLOWUP_PHRASES = [
   "specifically", "give me more", "break that down",
 ];
 
+// Detects referential pronouns that indicate the question refers to a prior subject
+// ("Show it by month", "Break that down", "What drove those numbers?").
+// The word-count gate in buildEnrichedQuery (< 6 words) prevents false positives
+// on longer questions that contain incidental pronoun use.
+const PRONOUN_FOLLOWUP_PATTERN = /\b(it|that|this|those|them|these)\b/;
+
+// Phrases that signal the user wants monthly-granularity output.
+// Used by the follow-up monthly breakdown guard in dispatchAgent.
+const MONTHLY_BREAKDOWN_PHRASES = [
+  "by month", "monthly", "month by month", "month-by-month", "each month", "per month",
+];
+
 function isFollowUp(normalized: string, history: ConversationTurn[]): boolean {
   if (history.length === 0) return false;
-  return FOLLOWUP_PHRASES.some(p => normalized.includes(p));
+  if (FOLLOWUP_PHRASES.some(p => normalized.includes(p))) return true;
+  return PRONOUN_FOLLOWUP_PATTERN.test(normalized);
 }
 
 // ─── Context enrichment ───────────────────────────────────────────────────────
 
 function buildEnrichedQuery(question: string, history: ConversationTurn[]): string {
-  const last = history.filter(h => h.role === "user").slice(-1)[0];
-  if (!last) return question;
+  const userTurns = history.filter(h => h.role === "user");
+  // Require at least 2 user turns: AgentChatPanel appends the current question to
+  // history before calling dispatchAgent, so userTurns[-1] is the current question
+  // and userTurns[-2] is the prior one that provides the enrichment context.
+  if (userTurns.length < 2) return question;
+  const last = userTurns.slice(-2)[0];
 
   const words = question.trim().split(/\s+/);
   if (words.length < 6 && isFollowUp(question.toLowerCase(), history)) {
@@ -324,6 +341,68 @@ ${isFav
   };
 }
 
+// ─── Follow-up monthly breakdown response builder ────────────────────────────
+// Produces a month-by-month table for the full fiscal year.
+// Jan–May rows use real actuals; Jun–Dec rows use a run-rate estimate derived
+// from the YTD average with the observed MoM growth rate applied.
+// Called only when a confirmed follow-up asks for monthly granularity on a
+// prior full-year forecast (e.g. "Show it by month" after "Show me full year").
+
+function buildMonthlyBreakdownResponse(ctx: ConversationContext): AgentResponse {
+  const s   = ctx.snapshot;
+  const fmt = formatCurrency;
+  const pct = formatPercent;
+
+  const ytdCount = s.monthly.length;
+  if (ytdCount === 0) {
+    return {
+      answer: "Monthly data isn't available right now — I can't build a breakdown without it.",
+      keyPoints: [], riskFlags: [], actions: [],
+    };
+  }
+
+  const MONTH_ORDER = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const avgMonthly    = s.ytdActual / ytdCount;
+  const runRateMonth  = avgMonthly * (1 + s.momGrowthPct);
+  const budgetPerMonth = s.fullYearBudget / 12;
+
+  // Historical rows — actuals available
+  const historicalRows = s.monthly.map(m => {
+    const v    = m.actual - m.budget;
+    const vPct = m.budget > 0 ? v / m.budget : 0;
+    return `| ${m.month} | ${fmt(m.actual)} | ${fmt(m.budget)} | ${v >= 0 ? '+' : ''}${fmt(v)} (${v >= 0 ? '+' : ''}${pct(vPct)}) |`;
+  });
+
+  // Future rows — run-rate estimates only
+  const futureLabels = MONTH_ORDER.slice(ytdCount);
+  const futureRows   = futureLabels.map(m =>
+    `| ${m} *(est.)* | ~${fmt(runRateMonth)} | ${fmt(budgetPerMonth)} | — |`
+  );
+
+  const projectedTotal = s.ytdActual + runRateMonth * futureLabels.length;
+  const totalVariance  = projectedTotal - s.fullYearBudget;
+  const isOver         = totalVariance > 0;
+
+  return {
+    answer:
+      `Here's the full-year forecast broken down by month. ` +
+      `Actuals are through ${s.currentMonth.month} 2026; ` +
+      `${futureLabels[0] ?? 'remaining months'} onwards are estimated at the current run rate (~${fmt(runRateMonth)}/month).\n\n` +
+      `| Month | Actual / Est. | Budget | Variance |\n` +
+      `|---|---|---|---|\n` +
+      [...historicalRows, ...futureRows].join('\n') + '\n' +
+      `| **FY2026 Total** | **~${fmt(projectedTotal)}** | **${fmt(s.fullYearBudget)}** | **${isOver ? '+' : ''}${fmt(totalVariance)}** |\n\n` +
+      `Estimates use the ${pct(s.momGrowthPct)} MoM growth rate from recent actuals and will be replaced by actuals as months close.`,
+    keyPoints: [
+      `YTD actuals Jan–${s.currentMonth.month}: ${fmt(s.ytdActual)} vs budget ${fmt(s.ytdBudget)}`,
+      `Run-rate estimate (${futureLabels.join('–')}): ~${fmt(runRateMonth)}/month`,
+      `Projected FY2026: ~${fmt(projectedTotal)} — ${fmt(Math.abs(totalVariance))} ${isOver ? 'over' : 'under'} the ${fmt(s.fullYearBudget)} budget`,
+    ],
+    riskFlags: [],
+    actions:   [],
+  };
+}
+
 // ─── Main dispatch ────────────────────────────────────────────────────────────
 
 export function dispatchAgent(
@@ -464,13 +543,55 @@ export function dispatchAgent(
     };
   }
 
+  // FOLLOW-UP MONTHLY BREAKDOWN: fires when a confirmed follow-up asks for monthly
+  // granularity on a prior full-year forecast topic.
+  //
+  // Three conditions must all be true:
+  //   1. enriched !== question  — buildEnrichedQuery produced an enriched string,
+  //      meaning this question was recognised as a follow-up.
+  //   2. The original question contains a monthly-breakdown phrase
+  //      ("by month", "monthly", "month by month", etc.).
+  //   3. routeResponseMode applied to the enriched string (which includes the prior
+  //      question as context) resolves to FULL_YEAR_FORECAST — confirming the prior
+  //      topic was a full-year forecast.
+  //
+  // Single-turn routing is never affected: condition 1 is false on first turn.
+  const isEnrichedFollowUp    = enriched !== question;
+  const wantsMonthlyBreakdown = MONTHLY_BREAKDOWN_PHRASES.some(p => question.toLowerCase().includes(p));
+
+  if (isEnrichedFollowUp && wantsMonthlyBreakdown) {
+    const enrichedModeResult = routeResponseMode(enriched);
+    if (enrichedModeResult.mode === 'FULL_YEAR_FORECAST') {
+      const response = buildMonthlyBreakdownResponse(ctx);
+      console.log('[MOCK ROUTER]', {
+        rawQuestion:          question,
+        enrichedQuestion:     enriched,
+        responseMode:         'MONTHLY_BREAKDOWN',
+        templateUsed:         null,
+        fallbackUsed:         false,
+        fullYearDataInjected: false,
+        agentVoice:           agentId,
+        timestamp:            new Date().toISOString(),
+      });
+      return {
+        ...response,
+        routeKey:             'monthly-breakdown-guard',
+        responseMode:         'MONTHLY_BREAKDOWN' as string,
+        fullYearDataInjected: false,
+        fallbackUsed:         false,
+        templateUsed:         null,
+      };
+    }
+  }
+
   // ── Standard keyword routing ──────────────────────────────────────────────
   const scored = routes
     .map(route => ({ route, score: scoreRoute(normalized, route) }))
     .filter(r => r.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const winner             = scored[0]?.route ?? routes[0];
+  const defaultRoute       = routes.find(r => r.key === "default") ?? routes[routes.length - 1];
+  const winner             = scored[0]?.route ?? defaultRoute;
   const fallbackUsed       = !scored[0];
   const fullYearDataInjected = winner.key === 'forecast';
   const response           = winner.handler(ctx);

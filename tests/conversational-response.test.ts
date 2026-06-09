@@ -10,6 +10,7 @@
 import { detectQuestionType, routeResponseMode } from "../src/lib/ai/response-mode-router";
 import type { QuestionType } from "../src/lib/ai/response-mode-router";
 import { dispatchAgent } from "../src/agents/agentEngine";
+import type { ConversationTurn } from "../src/agents/agentEngine";
 import { buildSystemPrompt } from "../src/lib/ai/system-prompt.builder";
 import { getFinanceSnapshot } from "../src/agents/dataContext";
 
@@ -444,6 +445,60 @@ section("16. Regression — 'Summarize May performance' routes EXECUTIVE_SUMMARY
   assert("  → mode = EXECUTIVE_SUMMARY", r.mode,         "EXECUTIVE_SUMMARY");
   assert("  → month = May",              r.month,        "May");
   assert("  → questionType = SUMMARY",   r.questionType, "SUMMARY");
+}
+
+// ─── Group 17: Follow-up context routing ─────────────────────────────────────
+
+section("17. Follow-up context routing — conversation history");
+
+function buildConvHistory(
+  q1Text: string, q1RouteKey: string, q1Answer: string, q2Text: string
+): ConversationTurn[] {
+  return [
+    { role: "user",  content: q1Text },
+    { role: "agent", content: q1Answer, routeKey: q1RouteKey },
+    { role: "user",  content: q2Text },
+  ];
+}
+
+// Conv A: full-year → monthly breakdown
+{
+  console.log('\n  Conv A: "Show me full year" → "Show it by month"');
+  const q1    = dispatchAgent("fpa", "Show me full year", [{ role: "user", content: "Show me full year" }]);
+  const histA = buildConvHistory("Show me full year", q1.routeKey, q1.answer, "Show it by month");
+  const q2    = dispatchAgent("fpa", "Show it by month", histA);
+
+  assert("  Q1 → forecast route",                    q1.routeKey,             "forecast");
+  assert("  Q2 → monthly-breakdown-guard",           q2.routeKey,             "monthly-breakdown-guard");
+  assert("  Q2 → responseMode = MONTHLY_BREAKDOWN",  q2.responseMode,         "MONTHLY_BREAKDOWN");
+  assert("  Q2 → fullYearDataInjected = false",      q2.fullYearDataInjected, false);
+  assertIncludes("  Q2 answer contains 'FY2026 Total'", q2.answer, "FY2026 Total");
+  assertIncludes("  Q2 answer contains 'Jan'",          q2.answer, "Jan");
+  assertNotIncludes("  Q2 answer has no 'Cloud Engineering'", q2.answer, "Cloud Engineering");
+}
+
+// Conv B: forecast → break that down
+{
+  console.log('\n  Conv B: "Forecast outlook" → "Break that down"');
+  const q1    = dispatchAgent("fpa", "Forecast outlook", [{ role: "user", content: "Forecast outlook" }]);
+  const histB = buildConvHistory("Forecast outlook", q1.routeKey, q1.answer, "Break that down");
+  const q2    = dispatchAgent("fpa", "Break that down", histB);
+
+  assert("  Q1 → forecast route",                        q1.routeKey, "forecast");
+  assert("  Q2 stays on forecast (not variance-drivers)", q2.routeKey, "forecast");
+  assertNotIncludes("  Q2 has no 'Cloud Engineering'",   q2.answer, "Cloud Engineering");
+}
+
+// Conv C: May actuals → tell me more
+{
+  console.log('\n  Conv C: "What were May actuals?" → "Tell me more"');
+  const q1    = dispatchAgent("fpa", "What were May actuals?", [{ role: "user", content: "What were May actuals?" }]);
+  const histC = buildConvHistory("What were May actuals?", q1.routeKey, q1.answer, "Tell me more");
+  const q2    = dispatchAgent("fpa", "Tell me more", histC);
+
+  assert("  Q1 → factual-monthly-guard",                 q1.routeKey, "factual-monthly-guard");
+  assert("  Q2 → bva route (actuals context inherited)", q2.routeKey, "bva");
+  assertNotIncludes("  Q2 has no three-BU-driver narrative (not variance-drivers)", q2.answer, "driven by three BUs");
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────

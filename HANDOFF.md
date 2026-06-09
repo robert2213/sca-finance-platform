@@ -2039,3 +2039,297 @@ ${topFav.length > 0
 3. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
 4. **Next.js 15 upgrade** — resolves 14 CVEs
 5. **Databricks migration scripts** — run `001-add-client-id.sql` + `002-backfill-client-id.sql`
+
+---
+
+## Session Update — June 9, 2026 (Session G)
+
+### Sprint: Report-Style Response Diagnostic
+
+**Problem:** The live application still returns full report-style responses for simple conversational questions. Evidence:
+- "What were May actuals?" → Month Close summary with table, YTD metrics, full-year forecast, Key Takeaways, Recommended Actions
+- "What is June's forecast?" → Full-Year CFO View with scenario headers
+
+**No files were modified in this session.** Read-only diagnostic trace only.
+
+---
+
+### Root Cause Analysis
+
+Five compounding root causes confirmed:
+
+| # | Root Cause | Location |
+|---|---|---|
+| 1 | **UI never calls the API** | `src/components/agents/AgentChatPanel.tsx:225` calls `getAgentResponse()` from `@/agents/mockResponses` directly. The entire `/api/agent` Claude path is bypassed — RESPONSE RULES, system prompt builder, and Claude never execute. |
+| 2 | **3 critical commits are NOT deployed** | `dd20016`, `f8433f6`, `b3c6057` are local only. `origin/main = bfcd05c`. Vercel deployed from `d2482bf`. |
+| 3 | **Deployed `agentEngine.ts` (d2482bf) has no guards** | No `routeResponseMode()` call, no `outputMode` or `questionType` fields on `ConversationContext`, no MONTHLY_FORECAST / FACTUAL_MONTHLY guards. Pure keyword scoring only. |
+| 4 | **Deployed `fpa.ts` `bva` handler always returns report** | Handler signature is `handler({ snapshot: s })` — ctx not destructured. No `ctx.outputMode` check. Always emits "Budget vs. Actuals — YTD May 2026" full-report template. |
+| 5 | **`AgentChatPanel.tsx` renders actions and keyPoints unconditionally** | Line 358–382: "Recommended Actions" section renders whenever `msg.actions.length > 0`, no responseMode check. Line 343–355: "Key Takeaways" renders whenever `msg.keyPoints.length > 0`, no check. |
+
+---
+
+### Exact Execution Trace: "What were May actuals?" (FP&A agent, deployed code)
+
+1. `AgentChatPanel.tsx:225` → `getAgentResponse(agentId, question, history)` from `mockResponses.ts`
+2. `mockResponses.ts` → `dispatchAgent("fpa", question, history)` in `agentEngine.ts`
+3. Deployed `agentEngine.ts` (d2482bf):
+   - No `routeResponseMode()` call — no mode assigned
+   - Builds `ConversationContext` with no `outputMode`, no `questionType`
+   - Runs `scoreRoute()` over all fpa routes
+4. **Route wins:** `bva` — score 9 (`"actuals"` keyword: weight 8 + 1 word = 9). Next highest is `variance-drivers` at 7.
+5. **Handler executes:** `fpa.ts` bva handler (deployed version)
+   - Signature: `handler({ snapshot: s })` — ctx not in scope
+   - No `ctx.outputMode` check anywhere in handler
+   - Always returns the full-report branch
+6. **FACTUAL_MONTHLY guard:** Does not exist in deployed code — dd20016 was never pushed
+7. **"Budget vs. Actuals — YTD May 2026" generated at:** `fpa.ts` bva handler `answer` field — `s.periodLabel = "YTD May 2026"` interpolated into the hardcoded template string
+8. **dd20016 in deployed code:** NO — `origin/main = bfcd05c`, dd20016 is local only
+9. Response returns to `AgentChatPanel.tsx` with `keyPoints` (5 items) and `actions` (1 item) populated
+10. `AgentChatPanel.tsx:343–382` renders Key Takeaways and Recommended Actions sections unconditionally
+
+---
+
+### Unpushed Commits (as of this session)
+
+| Commit | Description | Status |
+|---|---|---|
+| `dd20016` | Adds `outputMode` + `questionType` to `ConversationContext`; all 5 response-mode guards; fixes TDZ ReferenceError | **Local only** |
+| `f8433f6` | Test suite updates for the above | **Local only** |
+| `b3c6057` | Docs | **Local only** |
+
+**Origin state:** `origin/main = bfcd05c`. Vercel is running `d2482bf`.
+
+---
+
+### Fix Plan
+
+| Priority | Action | Impact |
+|---|---|---|
+| **1 (immediate)** | `git push origin main` | Deploys dd20016 + f8433f6 + b3c6057 to Vercel. Deployed agentEngine.ts gets all 5 guards, `outputMode`, `questionType`. Fixes root causes 2, 3, 4 in one push. |
+| **2** | Wire `AgentChatPanel.tsx` to fetch `/api/agent` instead of calling mockResponses directly | Activates the Claude live path, system prompt builder, RESPONSE RULES — the work from Sessions C–F actually executes |
+| **3** | Gate `AgentChatPanel.tsx` Key Takeaways + Recommended Actions on `responseMode === 'question_answering'` | Prevents report sections rendering for conversational responses even when mock path populates the arrays |
+| **4** | Default `outputMode: modeResult.outputMode ?? 'question_answering'` in agentEngine.ts | Safety net — ensures no handler ever sees `ctx.outputMode === undefined` |
+
+**Fix 1 alone** resolves the primary symptom for the mock path. Fix 2 is required for the live Claude path (Sessions C–F work) to take effect.
+
+---
+
+### Files Verified (No Changes Made)
+
+| File | Finding |
+|---|---|
+| `src/components/agents/AgentChatPanel.tsx` | Line 225: mock call confirmed; lines 343–382: unconditional section render confirmed |
+| `src/agents/mockResponses.ts` | Thin wrapper → dispatchAgent confirmed |
+| `src/agents/agentEngine.ts` (local, b3c6057) | All 5 guards present; outputMode + questionType in ConversationContext |
+| `src/agents/responses/fpa.ts` (deployed, d2482bf) | bva handler: no ctx, always report branch |
+| `src/lib/ai/response-mode-router.ts` | FACTUAL_MONTHLY logic confirmed; detectQuestionType confirmed |
+
+---
+
+### Current Deployed State (as of Session G)
+
+```
+Deployed commit:   d2482bf  (Q&A routing — Session E work)
+origin/main:       bfcd05c
+Local HEAD:        b3c6057  (3 commits ahead of origin)
+Unpushed:          dd20016 → f8433f6 → b3c6057
+Live URL:          https://sca-finance-platform-dukhxkon6.vercel.app
+GitHub:            https://github.com/robert2213/sca-finance-platform
+```
+
+---
+
+### Next Session Priorities
+
+1. **`git push origin main`** — deploy dd20016 + f8433f6 + b3c6057; highest-impact single action available
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — activates the full Claude pipeline; verify "What were May actuals?" returns 2-3 sentence answer
+3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — all 8 agents go live on the Claude path
+4. **Vendor variance mock template** — procurement mock content gap (open from Session D)
+5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
+
+---
+
+## Session Update — June 9, 2026 (Session H)
+
+### Sprint: Follow-up Context Routing Fix
+
+**Problem:** After "Show me full year", the follow-up "Show it by month" routed to the `variance-drivers` route and returned Cloud Engineering / Infrastructure / Data & Analytics content instead of a monthly forecast breakdown. Three compounding bugs in `agentEngine.ts` combined with a missing temporal-inheritance feature.
+
+---
+
+### Root Cause Analysis
+
+| # | Bug | Location | Effect |
+|---|---|---|---|
+| 1 | `buildEnrichedQuery` off-by-one | `agentEngine.ts` | `AgentChatPanel` appends the current question to history **before** calling `dispatchAgent`. `slice(-1)[0]` returned the current question — enrichment produced "Show it by month — Show it by month" (self-referential, no context added) |
+| 2 | Pronoun follow-ups not detected | `agentEngine.ts` `isFollowUp()` | "Show it by month" contains pronoun "it" but `FOLLOWUP_PHRASES` had no pronoun detection — `isFollowUp()` returned false, so `buildEnrichedQuery` never fired |
+| 3 | Wrong fallback route | `agentEngine.ts` | When no keyword match scored above 0, `routes[0]` was used as fallback. For FPA, `routes[0]` is `variance-drivers` (weight 9, not the default). Short follow-ups with no recognized keywords always fell to variance-drivers. |
+| 4 | No monthly breakdown context inheritance | `agentEngine.ts` | Even when enrichment worked correctly, the follow-up was routed to the `forecast` handler which returned a full-year narrative — not a month-by-month breakdown |
+
+**Why `buildEnrichedQuery` produced "Q — Q":** `AgentChatPanel` builds `updatedHistory = [...history, { role: "user", content: text }]` and passes that to `dispatchAgent`. So `history[last]` is always the current question, not the prior one. The fix is `userTurns.slice(-2)[0]` (second-to-last user turn, i.e., the prior question).
+
+---
+
+### Fixes (all in `src/agents/agentEngine.ts`)
+
+**Fix 1 — `buildEnrichedQuery` off-by-one**
+
+```typescript
+function buildEnrichedQuery(question: string, history: ConversationTurn[]): string {
+  const userTurns = history.filter(h => h.role === "user");
+  if (userTurns.length < 2) return question;           // < 2 means no prior question exists
+  const last = userTurns.slice(-2)[0];                 // prior question (not current)
+  const words = question.trim().split(/\s+/);
+  if (words.length < 6 && isFollowUp(question.toLowerCase(), history)) {
+    return `${last.content} — ${question}`;
+  }
+  return question;
+}
+```
+
+**Fix 2 — Pronoun follow-up detection**
+
+```typescript
+const PRONOUN_FOLLOWUP_PATTERN = /\b(it|that|this|those|them|these)\b/;
+
+function isFollowUp(normalized: string, history: ConversationTurn[]): boolean {
+  if (history.length === 0) return false;
+  if (FOLLOWUP_PHRASES.some(p => normalized.includes(p))) return true;
+  return PRONOUN_FOLLOWUP_PATTERN.test(normalized);
+}
+```
+
+**Fix 3 — Default route fallback**
+
+```typescript
+const defaultRoute = routes.find(r => r.key === "default") ?? routes[routes.length - 1];
+const winner       = scored[0]?.route ?? defaultRoute;
+```
+
+All 6 agent route files confirmed to have `key: "default"`. Previously `routes[0]` was `variance-drivers` for FPA.
+
+**Fix 4 — Monthly breakdown context inheritance**
+
+Added `MONTHLY_BREAKDOWN_PHRASES`, `buildMonthlyBreakdownResponse(ctx)`, and a guard in `dispatchAgent()` that fires after the FACTUAL_MONTHLY guard and before keyword scoring:
+
+```typescript
+const isEnrichedFollowUp    = enriched !== question;
+const wantsMonthlyBreakdown = MONTHLY_BREAKDOWN_PHRASES.some(p => question.toLowerCase().includes(p));
+if (isEnrichedFollowUp && wantsMonthlyBreakdown) {
+  const enrichedModeResult = routeResponseMode(enriched);
+  if (enrichedModeResult.mode === 'FULL_YEAR_FORECAST') {
+    return buildMonthlyBreakdownResponse(ctx);  // routeKey: 'monthly-breakdown-guard'
+  }
+}
+```
+
+`buildMonthlyBreakdownResponse()` builds a markdown table: Jan–May rows use real `s.monthly` actuals; Jun–Dec rows are estimated at `runRateMonth = (ytdActual/ytdCount) * (1 + momGrowthPct)`. Returns `responseMode: 'MONTHLY_BREAKDOWN'`, `fullYearDataInjected: false`.
+
+**Guard chain order in `dispatchAgent()` (final):**
+
+```
+MONTHLY_FORECAST → QUARTERLY_FORECAST → HALF_YEAR → MONTHLY_VARIANCE → FACTUAL_MONTHLY → MONTHLY_BREAKDOWN → keyword scoring
+```
+
+**Single-turn isolation verified:** "What is June's forecast?" has no prior history → `enriched === question` → `isEnrichedFollowUp = false` → monthly breakdown guard never fires → MONTHLY_FORECAST hard guard fires normally. Confirmed safe.
+
+---
+
+### TypeScript
+
+`npx "C:\Users\rober\OneDrive\Desktop\nexora-ai-finance\node_modules\.bin\tsc.cmd" --noEmit --project "C:\Users\rober\OneDrive\Desktop\nexora-ai-finance\tsconfig.json"` — **0 errors**.
+
+---
+
+### Session Status
+
+| Item | Status |
+|---|---|
+| `src/agents/agentEngine.ts` — all 4 fixes | ✅ Complete |
+| TypeScript clean | ✅ Confirmed |
+| Group 17 tests in `tests/conversational-response.test.ts` | ⏳ Not yet added — tool error blocked edit mid-session |
+| Commit | ⏳ Not yet created |
+
+---
+
+### Files Modified
+
+| File | Status | Description |
+|---|---|---|
+| `src/agents/agentEngine.ts` | **MODIFIED** | All 4 fixes: off-by-one, pronoun detection, default fallback, monthly breakdown guard + builder |
+
+---
+
+### Pending Work (resume here next session)
+
+1. **Add Group 17 to `tests/conversational-response.test.ts`** — insert before `// ─── Results` block (line 450). `ConversationTurn` import already present on line 13. See the Group 17 test code below.
+2. **Run tests** — `npx tsx tests/conversational-response.test.ts` — expect Group 17 to pass; existing 101 assertions should not regress.
+3. **Stage and commit** — `src/agents/agentEngine.ts` + `tests/conversational-response.test.ts`; message: `"Fix follow-up routing and monthly breakdown context"`
+
+**Group 17 test code (insert before `// ─── Results` at line 450):**
+
+```typescript
+// ─── Group 17: Follow-up context routing ─────────────────────────────────────
+
+section("17. Follow-up context routing — conversation history");
+
+function buildConvHistory(
+  q1Text: string, q1RouteKey: string, q1Answer: string, q2Text: string
+): ConversationTurn[] {
+  return [
+    { role: "user",  content: q1Text },
+    { role: "agent", content: q1Answer, routeKey: q1RouteKey },
+    { role: "user",  content: q2Text },
+  ];
+}
+
+// Conv A: full-year → monthly breakdown
+{
+  console.log('\n  Conv A: "Show me full year" → "Show it by month"');
+  const q1    = dispatchAgent("fpa", "Show me full year", [{ role: "user", content: "Show me full year" }]);
+  const histA = buildConvHistory("Show me full year", q1.routeKey, q1.answer, "Show it by month");
+  const q2    = dispatchAgent("fpa", "Show it by month", histA);
+
+  assert("  Q1 → forecast route",                    q1.routeKey,             "forecast");
+  assert("  Q2 → monthly-breakdown-guard",           q2.routeKey,             "monthly-breakdown-guard");
+  assert("  Q2 → responseMode = MONTHLY_BREAKDOWN",  q2.responseMode,         "MONTHLY_BREAKDOWN");
+  assert("  Q2 → fullYearDataInjected = false",      q2.fullYearDataInjected, false);
+  assertIncludes("  Q2 answer contains 'FY2026 Total'", q2.answer, "FY2026 Total");
+  assertIncludes("  Q2 answer contains 'Jan'",          q2.answer, "Jan");
+  assertNotIncludes("  Q2 answer has no 'Cloud Engineering'", q2.answer, "Cloud Engineering");
+}
+
+// Conv B: forecast → break that down
+{
+  console.log('\n  Conv B: "Forecast outlook" → "Break that down"');
+  const q1    = dispatchAgent("fpa", "Forecast outlook", [{ role: "user", content: "Forecast outlook" }]);
+  const histB = buildConvHistory("Forecast outlook", q1.routeKey, q1.answer, "Break that down");
+  const q2    = dispatchAgent("fpa", "Break that down", histB);
+
+  assert("  Q1 → forecast route",                        q1.routeKey, "forecast");
+  assert("  Q2 stays on forecast (not variance-drivers)", q2.routeKey, "forecast");
+  assertNotIncludes("  Q2 has no 'Cloud Engineering'",   q2.answer, "Cloud Engineering");
+}
+
+// Conv C: May actuals → tell me more
+{
+  console.log('\n  Conv C: "What were May actuals?" → "Tell me more"');
+  const q1    = dispatchAgent("fpa", "What were May actuals?", [{ role: "user", content: "What were May actuals?" }]);
+  const histC = buildConvHistory("What were May actuals?", q1.routeKey, q1.answer, "Tell me more");
+  const q2    = dispatchAgent("fpa", "Tell me more", histC);
+
+  assert("  Q1 → factual-monthly-guard",                 q1.routeKey, "factual-monthly-guard");
+  assert("  Q2 → bva route (actuals context inherited)", q2.routeKey, "bva");
+  assertNotIncludes("  Q2 has no 'Cloud Engineering'",   q2.answer, "Cloud Engineering");
+}
+```
+
+---
+
+### Next Session Priorities
+
+1. **Add Group 17 + commit** (see pending work above) — complete the in-progress commit
+2. **`git push origin main`** — deploy all local commits (dd20016, f8433f6, b3c6057, + new follow-up fix commit) to Vercel
+3. **Wire `AgentChatPanel.tsx` to `/api/agent`** — activates the full Claude pipeline
+4. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
+5. **Vendor variance mock template** — procurement mock content gap (open from Session D)
