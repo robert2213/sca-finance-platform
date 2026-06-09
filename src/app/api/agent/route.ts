@@ -292,6 +292,18 @@ export async function POST(request: NextRequest) {
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
     if (hasApiKey) {
+      // ── Guard pre-check: structured guard responses take priority over Claude ──
+      const guardCheck = dispatchAgent(agentId, question, history);
+      if (guardCheck.routeKey.endsWith('-guard')) {
+        pipelineLog("GUARD_RESPONSE_BYPASSED_CLAUDE", {
+          agentId,
+          routeKey:  guardCheck.routeKey,
+          question,
+          elapsedMs: Date.now() - startMs,
+        });
+        return NextResponse.json({ ...guardCheck, mode: "live-guard" });
+      }
+
       // ── Real Claude path ────────────────────────────────────────────────
       try {
         const response = await callClaude(agentId, question, history);
