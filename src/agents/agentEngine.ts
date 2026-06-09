@@ -220,10 +220,7 @@ function buildMonthlyForecastMockResponse(
 
   return {
     answer: `${monthName} forecast is approximately ${fmt(projected)} based on the current run rate through ${s.currentMonth.month} 2026. ${monthName} budget is ~${fmt(monthlyBudget)} — projected variance is ${fmt(projected - monthlyBudget)} (${pct((projected - monthlyBudget) / monthlyBudget)}). Actuals will be available when ${monthName} closes. Want a full-year projection or cost center breakdown?`,
-    keyPoints: [
-      `${monthName} data not yet available — current data through ${s.currentMonth.month} 2026`,
-      `Projected run-rate: ~${fmt(projected)} (3-month average + MoM trend)`,
-    ],
+    keyPoints: [],
     riskFlags: [],
     actions: [],
   };
