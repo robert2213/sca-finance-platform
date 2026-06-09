@@ -26,54 +26,62 @@ export const fpaResponses: Route[] = [
       "driving the", "variance driver", "behind the variance", "source of",
     ],
     weight: 9,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const topOver = s.byBU.filter(b => b.variance > 0).sort((a, b) => b.variance - a.variance);
       const topFav  = s.byBU.filter(b => b.variance < 0).sort((a, b) => a.variance - b.variance);
-      return {
-        answer: `**YTD Variance Driver Analysis — ${s.periodLabel}**
+
+      if (ctx.outputMode !== 'question_answering') {
+        return {
+          answer: `**YTD Variance Driver Analysis — ${s.periodLabel}**
 
 Total unfavorable variance: **${fmt(s.ytdVariance)}** (${pct(s.ytdVariancePct)} vs. budget).
 
 **Primary Drivers — Unfavorable**
 
 **1. ${topOver[0]?.bu} (+${fmt(topOver[0]?.variance ?? 0)})**
-The #1 variance driver. AWS EC2 compute scaling for the Nexora AI inference platform added approximately ${fmt(76_000)} above plan. GCP Vertex AI training runs consumed 34% more compute than the annual plan assumed. Both are tied to approved Q2 roadmap deliverables but were not granularly budgeted at the service level.
+AWS EC2 compute scaling for the AI inference platform added approximately ${fmt(76_000)} above plan. GCP Vertex AI training runs consumed 34% more compute than the annual plan assumed.
 
 **2. ${topOver[1]?.bu} (+${fmt(topOver[1]?.variance ?? 0)})**
-Snowflake query costs exceeded contract minimums due to self-serve analytics adoption growing 22% faster than forecast. BigQuery slot utilization for the data lake is running above committed capacity, triggering on-demand pricing for overflow queries.
+Snowflake query costs exceeded contract minimums due to self-serve analytics adoption growing 22% faster than forecast. BigQuery slot utilization triggering on-demand pricing.
 
 **3. ${topOver[2]?.bu} (+${fmt(topOver[2]?.variance ?? 0)})**
-ERP consulting (Deloitte) expanded scope in Q1 without a formal change order. SAP FICO phase 2 deliverables were added to the engagement. Salesforce seat additions (6 net-new Marketing Cloud seats) were not included in the original plan.
+ERP consulting (Deloitte) expanded scope in Q1 without a formal change order. SAP FICO phase 2 deliverables added without budget amendment.
 
-**Partial Favorable Offsets**
-
-**4. ${topFav[0]?.bu} (${fmt(topFav[0]?.variance ?? 0)})**
-Hardware refresh deferred to Q3 (supply chain lead times). Network equipment savings from vendor renegotiation in January.
+${topFav.length > 0
+  ? `**Partial Favorable Offsets**\n\n**4. ${topFav[0].bu} (${fmt(topFav[0].variance)})**\nHardware refresh deferred to Q3. Network equipment savings from vendor renegotiation in January.`
+  : `**No Favorable Offsets**\nAll business units tracking over budget through ${s.periodLabel}.`}
 
 **5. Open Headcount Savings (~${fmt(-s.openReqSalaryAtRisk * 0.6)})**
-${s.hcSummary.open} open requisitions are generating salary savings through H1. This partially offsets cloud and contractor overages.
+${s.hcSummary.open} open requisitions generating salary savings through H1.
 
-**Net Variance Reconciliation**
-- Cloud Engineering overage:  +${fmt(topOver[0]?.variance ?? 0)}
-- Data & Analytics overage:   +${fmt(topOver[1]?.variance ?? 0)}
-- Applications overage:       +${fmt(topOver[2]?.variance ?? 0)}
-- Infrastructure favorable:   ${fmt(topFav[0]?.variance ?? 0)}
-- Open HC salary savings:     ~${fmt(-s.openReqSalaryAtRisk * 0.6)}
-- **Net variance:**           **${fmt(s.ytdVariance)}**`,
+**Net Variance: ${fmt(s.ytdVariance)}**`,
+          keyPoints: [
+            `#1 driver: ${topOver[0]?.bu ?? "Cloud"} — AI/ML compute scaling (+${fmt(topOver[0]?.variance ?? 0)})`,
+            `#2 driver: ${topOver[1]?.bu ?? "Data"} — Snowflake + BigQuery consumption overages`,
+            `#3 driver: ${topOver[2]?.bu ?? "Applications"} — ERP consultant scope expansion`,
+            "Open headcount salary savings partially offsetting overages",
+            "Infrastructure tracking within/under budget",
+          ],
+          riskFlags: [],
+          actions: [
+            { id: "FPA-D1", priority: "High", title: "Cloud FinOps review — quantify right-sizing", description: "Separate strategic investment from waste in cloud variance", owner: "Cloud Engineering + FP&A", dueDate: "2026-06-30" },
+            { id: "FPA-D2", priority: "High", title: "Deloitte change order — formalize scope", description: "Issue formal PO amendment for ERP phase 2 deliverables", owner: "Applications + Procurement", dueDate: "2026-06-15" },
+            { id: "FPA-D3", priority: "Medium", title: "Snowflake slot commitment analysis", description: "Evaluate upgrading to higher slot tier vs. on-demand pricing", owner: "Data Engineering + Finance", dueDate: "2026-07-01" },
+          ],
+        };
+      }
+
+      return {
+        answer: `The ${fmt(s.ytdVariance)} YTD variance is driven by three BUs: ${topOver[0]?.bu} (+${fmt(topOver[0]?.variance ?? 0)}, AWS/GCP scaling), ${topOver[1]?.bu} (+${fmt(topOver[1]?.variance ?? 0)}, Snowflake overages), and ${topOver[2]?.bu} (+${fmt(topOver[2]?.variance ?? 0)}, ERP consulting scope creep). ${topFav[0] ? `${topFav[0].bu} is partially offsetting at ${fmt(topFav[0].variance)}.` : ''} Want me to dig into any specific driver?`,
         keyPoints: [
-          `#1 driver: ${topOver[0]?.bu ?? "Cloud"} — AI/ML compute scaling (+${fmt(topOver[0]?.variance ?? 0)})`,
-          `#2 driver: ${topOver[1]?.bu ?? "Data"} — Snowflake + BigQuery consumption overages`,
-          `#3 driver: ${topOver[2]?.bu ?? "Applications"} — ERP consultant scope expansion`,
-          "Open headcount salary savings partially offsetting overages — ~$150K favorable YTD",
-          "Infrastructure and IT Ops tracking within/under budget — favorable trend",
+          `#1: ${topOver[0]?.bu ?? "Cloud"} +${fmt(topOver[0]?.variance ?? 0)} — compute scaling`,
+          `#2: ${topOver[1]?.bu ?? "Data"} +${fmt(topOver[1]?.variance ?? 0)} — consumption overages`,
+          `#3: ${topOver[2]?.bu ?? "Applications"} +${fmt(topOver[2]?.variance ?? 0)} — consulting scope`,
         ],
         riskFlags: [],
-        actions: [
-          { id: "FPA-D1", priority: "High", title: "Cloud FinOps review — quantify right-sizing", description: "Separate strategic investment from waste in cloud variance", owner: "Cloud Engineering + FP&A", dueDate: "2026-06-30" },
-          { id: "FPA-D2", priority: "High", title: "Deloitte change order — formalize scope", description: "Issue formal PO amendment for ERP phase 2 deliverables", owner: "Applications + Procurement", dueDate: "2026-06-15" },
-          { id: "FPA-D3", priority: "Medium", title: "Snowflake slot commitment analysis", description: "Evaluate upgrading to higher slot tier vs. on-demand pricing", owner: "Data Engineering + Finance", dueDate: "2026-07-01" },
-        ],
+        actions: [],
       };
     },
   },
@@ -86,10 +94,16 @@ ${s.hcSummary.open} open requisitions are generating salary savings through H1. 
       "against budget", "to budget", "vs plan", "against plan", "how are we tracking",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
-      return {
-        answer: `**Budget vs. Actuals — ${s.periodLabel}**
+      const topOver = s.byBU.filter(b => b.variance > 0).sort((a, b) => b.variance - a.variance)[0];
+      const overCount = s.byBU.filter(b => b.variance > 0).length;
+      const dir = s.ytdVariance > 0 ? 'over' : 'under';
+
+      if (ctx.outputMode !== 'question_answering') {
+        return {
+          answer: `**Budget vs. Actuals — ${s.periodLabel}**
 
 **Summary**
 | Metric | Value |
@@ -111,74 +125,78 @@ ${s.byBU.map(b => {
 **Monthly Trend — Actual vs. Budget**
 ${s.monthly.map(m => {
   const v = m.actual - m.budget;
-  const bar = "█".repeat(Math.min(Math.round(m.actual / 200_000), 20));
   return `${m.month}: ${fmt(m.actual)} | ${v > 0 ? "▲" : "▼"} ${fmt(Math.abs(v))}`;
 }).join("\n")}
 
 **Assessment**
-Variance is unfavorable in ${s.byBU.filter(b => b.variance > 0).length} of ${s.byBU.length} business units. The trend is accelerating — May variance (${fmt(s.currentMonth.actual - s.currentMonth.budget)}) was the largest single-month overage YTD. If the current run rate continues unchanged, the full-year variance will exceed ${fmt(s.ytdVariance / 5 * 12)}.`,
+Variance is unfavorable in ${overCount} of ${s.byBU.length} business units. May variance (${fmt(s.currentMonth.actual - s.currentMonth.budget)}) was the largest single-month overage YTD. Full-year run-rate variance risk: ~${fmt(s.ytdVariance / 5 * 12)} if unmitigated.`,
+          keyPoints: [
+            `${overCount} of ${s.byBU.length} business units tracking over budget`,
+            `Largest overage: ${topOver?.bu} at ${topOver ? fmt(topOver.variance) : "N/A"}`,
+            `May was highest-variance month YTD — trend is accelerating`,
+            `Full-year run-rate variance risk: ~${fmt(s.ytdVariance / 5 * 12)} if unmitigated`,
+            `Favorable BUs: ${s.byBU.filter(b => b.variance < 0).map(b => b.bu).join(", ")}`,
+          ],
+          riskFlags: [],
+          actions: [
+            { id: "FPA-BVA1", priority: "High", title: "Monthly BU variance review meetings", description: "Schedule June close reviews with all BU owners — focus on Cloud Eng and Data", owner: "FP&A", dueDate: "2026-06-05" },
+          ],
+        };
+      }
+
+      return {
+        answer: `YTD IT spend is ${fmt(s.ytdActual)} — ${fmt(Math.abs(s.ytdVariance))} ${dir} the ${fmt(s.ytdBudget)} budget (${pct(s.ytdVariancePct)}). ${topOver ? `${topOver.bu} is the primary driver at +${fmt(topOver.variance)}.` : ''} ${overCount} of ${s.byBU.length} business units are over budget. Want me to break this down by BU or show the monthly trend?`,
         keyPoints: [
-          `${s.byBU.filter(b => b.variance > 0).length} of ${s.byBU.length} business units tracking over budget`,
-          `Largest overage: ${s.topOverBU?.bu} at ${s.topOverBU ? fmt(s.topOverBU.variance) : "N/A"}`,
-          `May was highest-variance month YTD — trend is accelerating`,
-          `Full-year run-rate variance risk: ~${fmt(s.ytdVariance / 5 * 12)} if unmitigated`,
-          `Favorable BUs: ${s.byBU.filter(b => b.variance < 0).map(b => b.bu).join(", ")}`,
-        ],
+          `YTD: ${fmt(s.ytdActual)} vs budget ${fmt(s.ytdBudget)} — ${fmt(s.ytdVariance)} ${s.ytdVariance > 0 ? 'unfavorable' : 'favorable'}`,
+          topOver ? `Top driver: ${topOver.bu} at +${fmt(topOver.variance)}` : '',
+        ].filter(Boolean),
         riskFlags: [],
-        actions: [
-          { id: "FPA-BVA1", priority: "High", title: "Monthly BU variance review meetings", description: "Schedule June close reviews with all BU owners — focus on Cloud Eng and Data", owner: "FP&A", dueDate: "2026-06-05" },
-        ],
+        actions: [],
       };
     },
   },
 
-  // ── 3. Forecast / reforecast ───────────────────────────────────────────────
+  // ── 3. Forecast / reforecast (FULL-YEAR ONLY) ─────────────────────────────
+  // Monthly/quarterly/half-year queries are intercepted by the response mode
+  // router in agentEngine.ts before they reach keyword routing. This handler
+  // is reached only for genuine full-year forecast questions.
   {
     key: "forecast",
     keywords: [
-      "forecast", "reforecast", "re-forecast", "project", "full year", "year-end",
-      "predict", "estimate", "outlook", "what will we spend",
+      "forecast", "reforecast", "re-forecast", "full year", "year-end",
+      "outlook", "what will we spend", "where will we land", "full-year",
+    ],
+    // Negatives: month and quarter patterns that indicate temporal scope
+    // (belt-and-suspenders — the response mode router guards these already)
+    negatives: [
+      "january", "february", "march", "april", "june", "july",
+      "august", "september", "october", "november", "december",
+      "jan's", "feb's", "jun's", "jul's", "aug's",
     ],
     weight: 7,
     handler({ snapshot: s }) {
       const { fmt, pct } = s;
       const overrun = s.fullYearForecast - s.fullYearBudget;
+      const isOver  = overrun > 0;
+
       return {
-        answer: `**FP&A Full-Year Forecast — Q2 Reforecast**
+        answer: `Full-year forecast: **${fmt(s.fullYearForecast)}** — ${fmt(Math.abs(overrun))} ${isOver ? 'over' : 'under'} the ${fmt(s.fullYearBudget)} budget (${pct(Math.abs(overrun / s.fullYearBudget))} ${isOver ? 'unfavorable' : 'favorable'}). ${Math.abs(overrun) < 100_000 ? 'Essentially flat to plan.' : isOver ? 'A meaningful overage that needs H2 action.' : 'A favorable position — driven mainly by open headcount.'}
 
-**Revised Full-Year Outlook**
-Full-year forecast: **${fmt(s.fullYearForecast)}**
-Approved budget: **${fmt(s.fullYearBudget)}**
-Projected variance: **${fmt(overrun)} (${pct(overrun / s.fullYearBudget)})**
+The real question is whether cloud decelerates in H2. Right now cloud is running ${pct(s.cloudMoMGrowth)} MoM — if that rate holds instead of moderating, you're looking at another ${fmt(300_000 + 400_000)} of pressure above the base case.
 
-**Forecast Methodology**
-The Q2 reforecast uses a three-driver model:
-1. **Actuals Extrapolation**: YTD actuals (${fmt(s.ytdActual)}) run-rated at 97% (slight deceleration assumed in H2)
-2. **Known Commitments**: Vendor contracts, headcount plan, and approved project spend
-3. **Management Adjustments**: FinOps savings target (${fmt(-350_000)}), HC fills expected in Q3
-
-**Key Forecast Assumptions**
-- Cloud spend growth rate decelerates from ${pct(s.cloudMoMGrowth)} MoM to ~2% MoM in Q3–Q4
-- AWS EDP discount of 12% applies from July 1 (pending negotiation)
-- ${Math.ceil(s.hcSummary.open * 0.6)} open reqs filled by September — shifts labor mix to FTE
-- No new unplanned projects in H2 (conservative base case)
-- Accrual reversal for deferred Q3 hardware refresh: ~${fmt(-90_000)}
-
-**Scenario Analysis**
-| Scenario | Full-Year Spend | Variance |
+**Scenario range:**
+| | Full-Year | vs Budget |
 |---|---|---|
-| Base Case (current trajectory) | ${fmt(s.fullYearForecast)} | ${fmt(overrun)} |
-| Optimistic (FinOps + AWS EDP) | ${fmt(s.fullYearForecast - 350_000)} | ${fmt(overrun - 350_000)} |
-| Conservative (cloud continues accelerating) | ${fmt(s.fullYearForecast + 400_000)} | ${fmt(overrun + 400_000)} |
+| Base case (97% of run rate) | ${fmt(s.fullYearForecast)} | ${fmt(overrun)} |
+| Optimistic (FinOps + AWS EDP deal) | ${fmt(s.fullYearForecast - 350_000)} | ${fmt(overrun - 350_000)} |
+| Conservative (cloud holds at current pace) | ${fmt(s.fullYearForecast + 400_000)} | ${fmt(overrun + 400_000)} |
 
-**Forecast Accuracy Note**
-Q1 forecast was within 1.8% of actuals. Q2 was 3.1% off due to unanticipated cloud acceleration. Forecast reliability improves with FinOps visibility — a key reason to accelerate that program.`,
+Worth flagging: ${Math.ceil(s.hcSummary.open * 0.6)} of the ${s.hcSummary.open} open reqs are expected to fill in Q3. When they do, you'll see a step-up in salary spend — partially offsetting any cloud savings but also reflecting delivery capacity coming online.`,
         keyPoints: [
-          `Base case full-year forecast: ${fmt(s.fullYearForecast)} — ${fmt(overrun)} over budget`,
+          `Full-year forecast: ${fmt(s.fullYearForecast)} — ${fmt(Math.abs(overrun))} ${isOver ? 'over' : 'under'} budget`,
           `Optimistic case: ${fmt(s.fullYearForecast - 350_000)} — requires AWS EDP deal and FinOps execution`,
           `Conservative case: ${fmt(s.fullYearForecast + 400_000)} — if cloud growth does not decelerate`,
-          "Forecast methodology: actuals extrapolation + known commitments + management adjustments",
-          "Recommend locking Q2 reforecast by July 10 — needed for Q3 budget allocation",
+          `${s.hcSummary.open} open reqs expected to fill Q3 — step-up in H2 salary spend`,
         ],
         riskFlags: [],
         actions: [
@@ -198,53 +216,57 @@ Q1 forecast was within 1.8% of actuals. Q2 was 3.1% off due to unanticipated clo
       "which cost center", "by cost center",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
-      const mayActuals = s.monthly.length > 0
-        ? (() => {
-            // Build from raw actuals data — use byBU as proxy
-            return s.byBU.map(b => ({
-              name: b.bu,
-              actual: b.actual,
-              budget: b.budget,
-              variance: b.variance,
-              vPct: b.budget > 0 ? b.variance / b.budget : 0,
-            }));
-          })()
-        : [];
-
+      const mayActuals = s.byBU.map(b => ({
+        name: b.bu,
+        actual: b.actual,
+        budget: b.budget,
+        variance: b.variance,
+        vPct: b.budget > 0 ? b.variance / b.budget : 0,
+      }));
       const topOffenders = mayActuals.filter(r => r.vPct > 0.05).sort((a, b) => b.vPct - a.vPct);
-      return {
-        answer: `**Cost Center Analysis — ${s.periodLabel}**
+
+      if (ctx.outputMode !== 'question_answering') {
+        return {
+          answer: `**Cost Center Analysis — ${s.periodLabel}**
 
 **Highest Variance Cost Centers (>5% unfavorable)**
 ${topOffenders.length > 0 ? topOffenders.map((r, i) => `${i + 1}. **${r.name}**: ${fmt(r.actual)} actual vs. ${fmt(r.budget)} budget — **${pct(r.vPct)} unfavorable** (${fmt(r.variance)} over)`).join("\n") : "No cost centers are tracking >5% unfavorable at the BU level."}
 
-**Detailed Cost Center Observations**
-
 **CC-501 — AWS Production (Cloud Engineering)**
-YTD actual ${fmt(s.cloudYTD * 0.51)} vs. budget. Primary driver: EC2 Auto Scaling Groups expanded capacity for AI inference tier in March. Instance count grew from 48 to 67 without a corresponding budget amendment. Recommend implementing instance count governance via AWS Service Quotas.
+EC2 Auto Scaling expanded capacity for AI inference tier in March — instance count grew from 48 to 67 without a budget amendment.
 
 **CC-401 — Data Platform (Data & Analytics)**
-Snowflake consumption is the variance driver — the standard business tier cannot accommodate the self-serve analytics growth without exceeding compute credit allocation. A tier upgrade to Enterprise would add ${fmt(8_500)}/month but eliminate ${fmt(22_000)}/month in overage charges.
+Snowflake standard tier can't absorb self-serve analytics growth. Enterprise tier upgrade (+${fmt(8_500)}/mo) would eliminate ${fmt(22_000)}/mo in overages.
 
 **CC-701 — EA & Strategy (Enterprise Architecture)**
-Accenture engagement is tracking ${pct(0.085)} over contract. Weekly status reviews show 3 deliverables were added to scope in Q1 without a formal change order. Contract manager has been notified — amendment expected by June 15.
+Accenture tracking ${pct(0.085)} over contract — 3 deliverables added in Q1 without a change order. Amendment expected June 15.
 
 **On-Budget Cost Centers**
 ${s.byBU.filter(b => Math.abs(b.variance / b.budget) < 0.03).map(b => `✓ ${b.bu} — within 3% of budget`).join("\n")}`,
-        keyPoints: [
-          `${topOffenders.length} business units tracking >5% unfavorable variance`,
-          "CC-501 (AWS Production) = highest-variance cost center — EC2 scaling without budget amendment",
-          "CC-401 (Data Platform) = Snowflake tier upgrade decision pending — ROI positive at current overage rate",
-          "CC-701 (EA & Strategy) — Accenture scope creep; change order imminent",
-          `${s.byBU.filter(b => Math.abs(b.variance / b.budget) < 0.03).length} BUs tracking within 3% of budget`,
-        ],
+          keyPoints: [
+            `${topOffenders.length} business units tracking >5% unfavorable variance`,
+            "CC-501 (AWS Production) = highest — EC2 scaling without budget amendment",
+            "CC-401 (Data Platform) = Snowflake tier upgrade pending — ROI positive",
+            "CC-701 (EA & Strategy) — Accenture scope creep; change order imminent",
+            `${s.byBU.filter(b => Math.abs(b.variance / b.budget) < 0.03).length} BUs within 3% of budget`,
+          ],
+          riskFlags: [],
+          actions: [
+            { id: "FPA-CC1", priority: "High", title: "AWS EC2 instance count governance", description: "Implement Service Quota policy: all new instance requests require FP&A approval", owner: "Cloud Engineering + FP&A", dueDate: "2026-06-20" },
+            { id: "FPA-CC2", priority: "Medium", title: "Snowflake tier upgrade evaluation", description: "Model Enterprise tier ROI vs. current on-demand overage — present to CIO", owner: "Data Engineering + IT Finance", dueDate: "2026-07-01" },
+          ],
+        };
+      }
+
+      const top = topOffenders[0];
+      return {
+        answer: `${topOffenders.length} business units are tracking >5% over budget. ${top ? `${top.name} is highest at ${pct(top.vPct)} unfavorable (${fmt(top.variance)} over) — driven by ${top.name.includes('Cloud') ? 'EC2 scaling without a budget amendment' : top.name.includes('Data') ? 'Snowflake consumption overages' : 'consulting scope expansion'}.` : ''} ${s.byBU.filter(b => Math.abs(b.variance / b.budget) < 0.03).length} BUs are within 3% of budget. Want the full breakdown?`,
+        keyPoints: topOffenders.slice(0, 3).map(r => `${r.name}: ${pct(r.vPct)} over (${fmt(r.variance)})`),
         riskFlags: [],
-        actions: [
-          { id: "FPA-CC1", priority: "High", title: "AWS EC2 instance count governance", description: "Implement Service Quota policy: all new instance requests require FP&A approval", owner: "Cloud Engineering + FP&A", dueDate: "2026-06-20" },
-          { id: "FPA-CC2", priority: "Medium", title: "Snowflake tier upgrade evaluation", description: "Model Enterprise tier ROI vs. current on-demand overage — present to CIO", owner: "Data Engineering + IT Finance", dueDate: "2026-07-01" },
-        ],
+        actions: [],
       };
     },
   },
@@ -257,10 +279,15 @@ ${s.byBU.filter(b => Math.abs(b.variance / b.budget) < 0.03).map(b => `✓ ${b.b
       "trajectory", "pattern", "over time", "historical", "movement",
     ],
     weight: 7,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
-      return {
-        answer: `**Spend Trend Analysis — ${s.periodLabel}**
+      const first = s.monthly[0];
+      const last  = s.monthly[s.monthly.length - 1];
+
+      if (ctx.outputMode !== 'question_answering') {
+        return {
+          answer: `**Spend Trend Analysis — ${s.periodLabel}**
 
 **Monthly Progression**
 ${s.monthly.map((m, i) => {
@@ -269,31 +296,31 @@ ${s.monthly.map((m, i) => {
   return `**${m.month}**: ${fmt(m.actual)} | Budget: ${fmt(m.budget)} | Var: ${fmt(m.actual - m.budget)} ${prior ? `| MoM: ${mom > 0 ? "+" : ""}${pct(mom)}` : ""}`;
 }).join("\n")}
 
-**Trend Observations**
+Cloud spend has grown every month — +35% from January to May (${pct(s.cloudMoMGrowth)} MoM in May). External labor blended rate rising as scope expands. Infrastructure consistently favorable — hardware refresh deferral. Applications trending up on ERP consulting growth. FTE labor stable.
 
-1. **Accelerating Cloud Spend**: Cloud infrastructure spend has grown every single month in 2026. May cloud spend of ~${fmt(s.cloudYTD / 5 * 1.08)} is 35% higher than January levels. The MoM growth rate in May was ${pct(s.cloudMoMGrowth)}.
+If the current acceleration continues, monthly run rate reaches ${fmt(s.currentMonth.actual * 1.08)} by August.`,
+          keyPoints: [
+            `Cloud growing every month — +35% Jan–May (${pct(s.cloudMoMGrowth)} MoM in May)`,
+            "External labor creep — blended rate up from $17.2K to $18.9K/month",
+            "Infrastructure consistently favorable — hardware refresh deferral",
+            "Applications accelerating — ERP consulting scope",
+            "FTE labor stable",
+          ],
+          riskFlags: [],
+          actions: [
+            { id: "FPA-T1", priority: "High", title: "Establish cloud spend growth rate target", description: "Target: bring MoM cloud growth below 2% by August via FinOps", owner: "Cloud Engineering + FP&A", dueDate: "2026-07-01" },
+          ],
+        };
+      }
 
-2. **Stable Labor Costs**: FTE labor (included in BU totals) has been the most stable cost category — consistent with budget. No anomalies detected.
-
-3. **External Labor Creep**: Contractor spend has increased month-over-month as scope expansions accumulate. Average monthly rate per contractor has risen from ${fmt(17_200)} in January to ${fmt(18_900)} in May.
-
-4. **Consistent Infrastructure Underspend**: Infrastructure BU has been favorable every month — consistently running 2–4% under budget. Hardware refresh deferral is the primary driver.
-
-5. **Applications Acceleration**: Applications spend is trending upward as ERP consulting scope expands. May was the highest applications month YTD at +${pct(0.076)} vs. budget.
-
-**Forecast Implication**
-If the current acceleration trend in cloud and external labor continues without intervention, the monthly run rate will reach ${fmt(s.currentMonth.actual * 1.08)} by August — implying a full-year spend of ${fmt(s.currentMonth.actual * 1.08 * 12 * 0.55 + s.ytdActual)}.`,
+      return {
+        answer: `IT spend has grown from ${fmt(first?.actual ?? 0)} in ${first?.month} to ${fmt(last?.actual ?? 0)} in ${last?.month} — ${pct(s.momGrowthPct)} MoM trend. Cloud is the primary driver, up +35% Jan–May (${pct(s.cloudMoMGrowth)} MoM in May). Infrastructure is the offset, consistently under budget. At this pace, monthly run rate reaches ${fmt(s.currentMonth.actual * 1.08)} by August. Want a month-by-month breakdown?`,
         keyPoints: [
-          `Cloud spend growing every month — +35% from January to May (${pct(s.cloudMoMGrowth)} MoM in May)`,
-          "External labor blended rate increasing — scope creep adding to monthly run rate",
-          "Infrastructure consistently favorable — hardware refresh deferral driving savings",
-          "Applications accelerating in Q2 — ERP consulting scope expansion",
-          "FTE labor stable — most predictable cost category YTD",
+          `Cloud +35% Jan–May — primary acceleration driver`,
+          `Infrastructure consistently under budget — hardware refresh deferral`,
         ],
         riskFlags: [],
-        actions: [
-          { id: "FPA-T1", priority: "High", title: "Establish cloud spend growth rate target", description: "Target: bring MoM cloud growth below 2% by August via FinOps", owner: "Cloud Engineering + FP&A", dueDate: "2026-07-01" },
-        ],
+        actions: [],
       };
     },
   },
@@ -309,9 +336,7 @@ If the current acceleration trend in cloud and external labor continues without 
     handler({ snapshot: s }) {
       const { fmt } = s;
       return {
-        answer: `**June 2026 Month-End Accrual Checklist — FP&A**
-
-Based on May actuals and June commitments, the following accruals are recommended for the June close:
+        answer: `June 2026 month-end accruals — based on May actuals and June commitments, the following accruals are recommended for the June close:
 
 **1. Cloud Infrastructure Accruals**
 - AWS EC2 (partial month): ${fmt(82_000)} — invoice lags 3–5 days; estimate based on CUR report
@@ -361,23 +386,7 @@ ${s.contractors.filter(c => c.status === "Active" || c.status === "Over Budget")
     handler({ snapshot: s }) {
       const { fmt, pct } = s;
       return {
-        answer: `**FP&A Agent — Ready to Analyze**
-
-I specialize in financial planning and variance analysis. Here's what I can help with:
-
-- **Variance Drivers**: What is causing the ${fmt(s.ytdVariance)} unfavorable variance?
-- **Budget vs. Actuals**: Full BU-level budget vs. actuals breakdown
-- **Forecast**: Q2 reforecast methodology and scenario analysis
-- **Cost Centers**: Deep-dive into specific cost center performance
-- **Trends**: Month-over-month spend trajectory and acceleration analysis
-- **Accruals**: Month-end accrual checklist and close support
-
-**Quick Headlines**
-- YTD variance: ${fmt(s.ytdVariance)} (${pct(s.ytdVariancePct)}) — cloud and external labor are the drivers
-- Highest-variance BU: ${s.topOverBU?.bu ?? "Cloud Engineering"} at +${fmt(s.topOverBU?.variance ?? 0)}
-- Full-year forecast: ${fmt(s.fullYearForecast)} vs. budget ${fmt(s.fullYearBudget)}
-
-What would you like me to dig into?`,
+        answer: `YTD IT spend is ${fmt(s.ytdActual)} — ${fmt(Math.abs(s.ytdVariance))} ${s.ytdVariance > 0 ? 'over' : 'under'} budget (${pct(s.ytdVariancePct)}). Top driver: ${s.topOverBU?.bu ?? "Cloud Engineering"} at +${fmt(s.topOverBU?.variance ?? 0)}. Full-year forecast: ${fmt(s.fullYearForecast)} vs. ${fmt(s.fullYearBudget)} budget. What would you like me to analyze?`,
         keyPoints: [
           `YTD variance: ${fmt(s.ytdVariance)} unfavorable`,
           "Ask me about variance drivers, forecast methodology, or cost center detail",

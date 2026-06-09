@@ -334,7 +334,6 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
     setInput("");
     setLoading(true);
 
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -344,26 +343,43 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
       { role: "user", content: text },
     ];
 
-    const thinkDelay = 600 + Math.random() * 800;
-    await new Promise(r => setTimeout(r, thinkDelay));
+    let response: AgentResponseWithRoute;
 
-    const response: AgentResponseWithRoute = getAgentResponse(agentId, text, updatedHistory);
+    try {
+      // Call the server-side API route — uses Claude when ANTHROPIC_API_KEY is set,
+      // falls back to mock keyword routing automatically.
+      const res = await fetch("/api/agent", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ agentId, question: text, history: updatedHistory }),
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      response = await res.json() as AgentResponseWithRoute;
+
+    } catch (err) {
+      console.error("[AgentWorkspace] API call failed, using local mock:", err);
+      // Last-resort client-side fallback (should not normally be reached)
+      response = getAgentResponse(agentId, text, updatedHistory);
+    }
+
     setLoading(false);
 
     await streamResponse(response.answer);
 
+    const routeKey = response.routeKey ?? "unknown";
     const agentMsg: ChatMessage = {
       role:      "agent",
       content:   response.answer,
       keyPoints: response.keyPoints,
       actions:   response.actions,
-      routeKey:  response.routeKey,
+      routeKey,
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, agentMsg]);
     setHistory([
       ...updatedHistory,
-      { role: "agent", content: response.answer, routeKey: response.routeKey },
+      { role: "agent", content: response.answer, routeKey },
     ]);
 
     setTimeout(() => textareaRef.current?.focus(), 100);

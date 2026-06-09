@@ -105,9 +105,10 @@ const INTENT_DEFINITIONS: IntentDefinition[] = [
     keywords: [
       "variance", "unfavorable variance", "favorable variance",
       "over budget", "under budget", "budget gap", "budget vs actual",
-      "actual vs budget", "versus budget", "spending variance",
+      "actual vs budget", "versus budget", "vs budget", "spending variance",
       "largest variance", "biggest variance", "what caused", "why did",
       "explain the variance", "why are we", "how much over", "how much under",
+      "spend vs budget", "vs plan", "against budget",
     ],
     dataSections: ["core", "business_units", "cloud", "external_labor", "risks"],
     directive:

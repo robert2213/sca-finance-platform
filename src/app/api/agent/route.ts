@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
 import { getFinanceSnapshot } from "@/agents/dataContext";
-import { buildSystemPrompt, classifyIntent } from "@/lib/ai/system-prompt.builder";
+import { buildSystemPrompt, classifyIntent, extractTemporalIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
+import {
+  buildAmbiguityResponse,
+  TIME_SENSITIVE_INTENTS,
+} from "@/lib/ai/conversation-context";
+import { routeResponseMode } from "@/lib/ai/response-mode-router";
 import type { AgentId } from "@/types/finance";
 import type { ConversationTurn } from "@/agents/agentEngine";
 
@@ -82,15 +87,87 @@ async function callClaude(
   const client = getClient();
   if (!client) throw new Error("ANTHROPIC_API_KEY not configured");
 
-  // ── Layer 1: Intent classification ────────────────────────────────────────
-  const intent = classifyIntent(question);
+  // ── Layer 1a: Intent classification ───────────────────────────────────────
+  const intent  = classifyIntent(question);
+
+  // ── Layer 1b: Temporal intent extraction ──────────────────────────────────
+  const temporal = extractTemporalIntent(question);
+
+  // ── Layer 1c: Response Mode Router (Step 7 logging) ───────────────────────
+  const modeResult           = routeResponseMode(question);
+  const responseMode         = modeResult.mode;
+  const fullYearDataInjected =
+    responseMode === 'FULL_YEAR_FORECAST' ||
+    (responseMode === 'GENERAL_QA' && intent.intent === 'FORECAST_ANALYSIS');
+
+  // ── Phase 2: [INTENT ROUTER] structured log ───────────────────────────────
+  const horizonApplied     = temporal.type !== "unknown";
+  const fallbackTriggered  = intent.intent === "GENERAL_FINANCIAL_QA";
+  const ambiguityDetected  =
+    TIME_SENSITIVE_INTENTS.includes(intent.intent) && temporal.confidence < 0.6;
+
+  // Step 7: Full structured log with all required fields
+  console.log("[INTENT ROUTER]", {
+    rawQuestion:          question,
+    detectedIntent:       intent.intent,
+    temporalIntent: {
+      type:       temporal.type,
+      specific:   temporal.specific,
+      startMonth: temporal.startMonth,
+      endMonth:   temporal.endMonth,
+      confidence: temporal.confidence,
+      rawMatch:   temporal.rawMatch,
+    },
+    responseMode,
+    templateUsed:         null,   // live path: Claude generates directly, no template
+    fallbackUsed:         fallbackTriggered,
+    dataSectionsInjected: intent.dataSections,
+    fullYearDataInjected,
+    agentVoice:           agentId,
+    horizonApplied,
+    ambiguityDetected,
+    timestamp: new Date().toISOString(),
+  });
+
+  // WARNING: this combination should never occur on the live path
+  // Cast to string to avoid TS narrowing false-positive (the union types are mutually exclusive
+  // by design, but we keep this guard as a belt-and-suspenders runtime check)
+  if (fullYearDataInjected && (modeResult.mode as string) === 'MONTHLY_FORECAST') {
+    console.warn('[INTENT ROUTER] WARNING: fullYearDataInjected=true with responseMode=MONTHLY_FORECAST', {
+      agentId, question, responseMode, intent: intent.intent, temporalType: temporal.type,
+    });
+  }
+
   pipelineLog("INTENT_CLASSIFIED", {
     agentId,
     question,
-    intent:       intent.intent,
-    confidence:   intent.confidence,
-    dataSections: intent.dataSections,
+    intent:               intent.intent,
+    intentConfidence:     intent.confidence,
+    dataSections:         intent.dataSections,
+    temporalType:         temporal.type,
+    temporalSpecific:     temporal.specific,
+    temporalConfidence:   temporal.confidence,
+    responseMode,
+    fullYearDataInjected,
+    horizonApplied,
+    ambiguityDetected,
   });
+
+  // ── Phase 4: Ambiguity detection — low temporal confidence on time-sensitive intents ──
+  if (ambiguityDetected) {
+    pipelineLog("AMBIGUITY_TRIGGERED", {
+      agentId,
+      intent:           intent.intent,
+      temporalType:     temporal.type,
+      temporalConfidence: temporal.confidence,
+      reason: "Temporal scope unclear for time-sensitive intent — asking clarifying question",
+    });
+
+    // Return a clarifying question without calling Claude.
+    // Cast through unknown: AmbiguityResponse has extra fields (pendingClarification etc.)
+    // that don't exist on AgentResponse, so a direct cast would fail strict mode.
+    return buildAmbiguityResponse(question, intent.intent, temporal) as unknown as ReturnType<typeof parseAgentResponse>;
+  }
 
   // ── Layer 2: System prompt construction ───────────────────────────────────
   const snapshot     = getFinanceSnapshot();
@@ -237,11 +314,24 @@ export async function POST(request: NextRequest) {
     // ── Mock fallback path ───────────────────────────────────────────────
     await sleep(400 + Math.random() * 800);
     const mockResponse = dispatchAgent(agentId, question, history);
+
+    // Step 7: WARNING if full-year data injected for a monthly question
+    if (mockResponse.fullYearDataInjected && mockResponse.responseMode === 'MONTHLY_FORECAST') {
+      console.warn('[PIPELINE] WARNING: fullYearDataInjected=true with responseMode=MONTHLY_FORECAST on mock path', {
+        agentId, question, routeKey: mockResponse.routeKey,
+      });
+    }
+
     pipelineLog("REQUEST_COMPLETE", {
       agentId,
-      mode:      "mock",
-      routeKey:  mockResponse.routeKey,
-      elapsedMs: Date.now() - startMs,
+      mode:                 "mock",
+      routeKey:             mockResponse.routeKey,
+      responseMode:         mockResponse.responseMode,
+      templateUsed:         mockResponse.templateUsed,
+      fallbackUsed:         mockResponse.fallbackUsed,
+      fullYearDataInjected: mockResponse.fullYearDataInjected,
+      agentVoice:           agentId,
+      elapsedMs:            Date.now() - startMs,
     });
     return NextResponse.json({ ...mockResponse, mode: "mock" });
 

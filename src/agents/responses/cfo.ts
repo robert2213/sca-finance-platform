@@ -27,39 +27,53 @@ export const cfoResponses: Route[] = [
       "financial performance", "overall", "status", "update", "report",
     ],
     weight: 5,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const may = s.currentMonth;
       const apr = s.priorMonth;
       const momVar = may.actual - apr.actual;
-      return {
-        answer: `**IT Financial Performance — Executive Summary | ${s.periodLabel}**
+
+      if (ctx.outputMode !== 'question_answering') {
+        return {
+          answer: `**IT Financial Performance — Executive Summary | ${s.periodLabel}**
 
 **Top-Line Results**
-YTD IT spend totals **${fmt(s.ytdActual)}** against an approved budget of **${fmt(s.ytdBudget)}**, producing an unfavorable variance of **${fmt(s.ytdVariance)} (${pct(s.ytdVariancePct)})**. This places us ${pct(Math.abs(s.ytdVariancePct))} above plan through five months of the fiscal year.
+YTD IT spend totals **${fmt(s.ytdActual)}** against an approved budget of **${fmt(s.ytdBudget)}**, producing an unfavorable variance of **${fmt(s.ytdVariance)} (${pct(s.ytdVariancePct)})**. This places us ${pct(Math.abs(s.ytdVariancePct))} above plan through five months.
 
 **May 2026 Close**
-May closed at ${fmt(may.actual)} — a ${fmt(momVar > 0 ? momVar : -momVar)} ${momVar > 0 ? "increase" : "decrease"} from April's ${fmt(apr.actual)}. The month-over-month acceleration is driven almost entirely by cloud infrastructure scaling. May was the highest-spend month YTD, continuing a trend of sequential monthly increases since January.
+May closed at ${fmt(may.actual)} — a ${fmt(Math.abs(momVar))} ${momVar > 0 ? "increase" : "decrease"} from April's ${fmt(apr.actual)}. May was the highest-spend month YTD.
 
 **Full-Year Outlook**
-Based on the current run rate, the full-year forecast is projected at **${fmt(s.fullYearForecast)}** against an approved budget of **${fmt(s.fullYearBudget)}** — an estimated overrun of approximately **${fmt(s.fullYearForecast - s.fullYearBudget)}**. This projection assumes FinOps interventions in Q3 begin to moderate cloud growth.
+Full-year forecast: **${fmt(s.fullYearForecast)}** vs. budget **${fmt(s.fullYearBudget)}** — estimated overrun of **${fmt(s.fullYearForecast - s.fullYearBudget)}**.
 
 **Top Three Issues**
 1. Cloud spend is ${pct(s.cloudVariancePct)} over budget YTD — AWS EC2 and GCP Vertex AI are the primary drivers
-2. ${s.overBudgetContractors.length} contractors are over their approved SOW budgets — total excess of ${fmt(s.totalExcessLabor)}
-3. AWS contract expires June 30 with no auto-renew — highest-urgency procurement event of Q2`,
+2. ${s.overBudgetContractors.length} contractors over approved SOW budgets — ${fmt(s.totalExcessLabor)} total excess
+3. AWS contract expires June 30 with no auto-renew — highest-urgency procurement event`,
+          keyPoints: [
+            `YTD: ${fmt(s.ytdActual)} vs ${fmt(s.ytdBudget)} — ${fmt(s.ytdVariance)} unfavorable (${pct(s.ytdVariancePct)})`,
+            `May highest-spend month YTD at ${fmt(may.actual)} — MoM +${fmt(Math.abs(momVar))}`,
+            `Cloud ${pct(s.cloudVariancePct)} over budget — AI/ML infrastructure acceleration`,
+            `${s.overBudgetContractors.length} contractors over budget — ${fmt(s.totalExcessLabor)} excess`,
+            `Full-year overrun: ~${fmt(s.fullYearForecast - s.fullYearBudget)}`,
+          ],
+          riskFlags: [],
+          actions: [
+            { id: "CFO-A1", priority: "High", title: "Present Q2 forecast revision to CXO team", description: `Revised full-year outlook of ${fmt(s.fullYearForecast)} needs executive visibility`, owner: "CFO + FP&A", dueDate: "2026-07-10" },
+            { id: "CFO-A2", priority: "High", title: "Escalate AWS contract renewal", description: "June 30 deadline requires CEO/CFO sponsorship for multi-year EDP commitment", owner: "CFO + CIO", dueDate: "2026-06-10" },
+          ],
+        };
+      }
+
+      return {
+        answer: `YTD IT spend is ${fmt(s.ytdActual)} — ${fmt(s.ytdVariance)} over budget (${pct(s.ytdVariancePct)}) through ${s.periodLabel}. Cloud is ${pct(s.cloudVariancePct)} over budget, ${s.overBudgetContractors.length} contractors have exceeded their SOW budgets (${fmt(s.totalExcessLabor)} excess), and AWS contract expires in ${s.daysUntil("2026-06-30")} days. Full-year forecast is ${fmt(s.fullYearForecast)} vs. ${fmt(s.fullYearBudget)} budget. What would you like to dig into?`,
         keyPoints: [
-          `YTD Actual: ${fmt(s.ytdActual)} | Budget: ${fmt(s.ytdBudget)} | Variance: ${fmt(s.ytdVariance)} (${pct(s.ytdVariancePct)})`,
-          `May was highest-spend month YTD at ${fmt(may.actual)} — MoM increase of ${fmt(Math.abs(momVar))}`,
-          `Cloud at ${pct(s.cloudVariancePct)} over budget — AI/ML infrastructure acceleration is strategic driver`,
-          `${s.overBudgetContractors.length} contractors over budget — ${fmt(s.totalExcessLabor)} total excess requires SOW amendments`,
-          `Full-year overrun risk: ~${fmt(s.fullYearForecast - s.fullYearBudget)} — FinOps program critical for Q3 mitigation`,
+          `YTD: ${fmt(s.ytdActual)} vs ${fmt(s.ytdBudget)} — ${fmt(s.ytdVariance)} unfavorable`,
+          `Cloud ${pct(s.cloudVariancePct)} over budget | ${s.overBudgetContractors.length} contractors over SOW | AWS expires in ${s.daysUntil("2026-06-30")}d`,
         ],
         riskFlags: [],
-        actions: [
-          { id: "CFO-A1", priority: "High", title: "Present Q2 forecast revision to CXO team", description: `Revised full-year outlook of ${fmt(s.fullYearForecast)} needs executive visibility and approval`, owner: "CFO + FP&A", dueDate: "2026-07-10" },
-          { id: "CFO-A2", priority: "High", title: "Escalate AWS contract renewal to Board agenda", description: "June 30 deadline requires CEO/CFO sponsorship for multi-year EDP commitment", owner: "CFO + CIO", dueDate: "2026-06-10" },
-        ],
+        actions: [],
       };
     },
   },
@@ -72,10 +86,24 @@ Based on the current run rate, the full-year forecast is projected at **${fmt(s.
       "threat", "exposure", "vulnerability", "watch out", "danger",
     ],
     weight: 7,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const critRisks = s.risks.filter(r => r.severity === "critical");
       const warnRisks = s.risks.filter(r => r.severity === "warning");
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `${s.risks.length} risk flags across the IT portfolio — ${critRisks.length} critical, ${warnRisks.length} warnings. Top: AWS contract expires in ${s.daysUntil("2026-06-30")} days (no auto-renew, ${fmt(s.topVendors.find(v => v.name.includes("Amazon"))?.annualValue ?? 4_560_000)}/yr at risk), cloud is running ${pct(s.cloudVariancePct)} over budget, and ${s.overBudgetContractors.length} contractors exceed their SOW budgets. Want the full risk rundown with mitigation paths?`,
+          keyPoints: [
+            `${critRisks.length} critical risks — AWS expiry and cloud trajectory`,
+            `${s.overBudgetContractors.length} contractors over budget — ${fmt(s.totalExcessLabor)} excess`,
+          ],
+          riskFlags: critRisks,
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Financial Risk Assessment — ${s.periodLabel}**
 
@@ -124,12 +152,26 @@ ${s.openReqs.filter(h => h.businessUnit === "Security" || h.businessUnit === "Cl
       "cheaper", "right-siz", "rationali", "where can we", "how do we save",
     ],
     weight: 7,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt } = s;
-      const cloudOpportunity = s.cloudYTD * 0.15;       // ~15% cloud savings
-      const laborConvert     = s.laborYTD * 0.25;       // 3 contractors to FTE
-      const saasRational     = 285_000;                  // SaaS license rationalization
+      const cloudOpportunity = s.cloudYTD * 0.15;
+      const laborConvert     = s.laborYTD * 0.25;
+      const saasRational     = 285_000;
       const total = cloudOpportunity + laborConvert + saasRational;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `Three savings opportunities totaling ${fmt(total)}: cloud right-sizing (~${fmt(cloudOpportunity)}/yr via Reserved Instances + AWS EDP), contractor-to-FTE conversion for 3 long-tenure roles (~${fmt(laborConvert)}/yr), and SaaS license rationalization (~${fmt(saasRational)}/yr at ServiceNow/Okta renewals). Quick win: BigQuery committed slots saves ~${fmt(18_000)}/month immediately. Want details on any of these?`,
+          keyPoints: [
+            `Total opportunity: ${fmt(total)}/year across three workstreams`,
+            `Cloud right-sizing = largest lever at ${fmt(cloudOpportunity)}/year`,
+          ],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Cost Optimization Opportunities — CFO Analysis**
 
@@ -180,13 +222,25 @@ A license utilization audit across M365, Salesforce, and ServiceNow is projected
       "slides", "deck", "message", "communicate",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
+
+      if (ctx.outputMode === 'question_answering') {
+        const overrun = s.fullYearForecast - s.fullYearBudget;
+        return {
+          answer: `Board message in four points: (1) variance is strategic — cloud overage funds the Board-approved AI/ML roadmap; (2) mitigation path is clear — AWS EDP + FinOps saves ~${fmt(s.cloudYTD * 0.15 + 350_000)}; (3) vendor pipeline is managed, no disruption risk; (4) HC fill rate at ${(s.fillRate * 100).toFixed(0)}% improves cost mix in Q3. Full-year overrun of ~${fmt(overrun)} compresses to ~${fmt(overrun * 0.6)} post-mitigation. Want the full narrative draft?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Board-Ready Financial Narrative — IT Organization**
 
 **Recommended Opening Statement**
-*"Our IT investment for the first five months of 2026 totals ${fmt(s.ytdActual)}, tracking ${pct(Math.abs(s.ytdVariancePct))} above our approved plan. This variance is intentional in part — reflecting accelerated investment in AI/ML infrastructure directly tied to the Nexora platform roadmap that the Board approved in Q4 2025. We are actively managing cost discipline through a structured FinOps program and vendor renegotiation."*
+*"Our IT investment for the first five months of 2026 totals ${fmt(s.ytdActual)}, tracking ${pct(Math.abs(s.ytdVariancePct))} above our approved plan. This variance is intentional in part — reflecting accelerated investment in AI/ML infrastructure directly tied to the Board-approved technology platform roadmap. We are actively managing cost discipline through a structured FinOps program and vendor renegotiation."*
 
 **Four-Point Board Message**
 
@@ -224,12 +278,24 @@ IT headcount is ${(s.fillRate * 100).toFixed(0)}% filled. Open positions are bei
       "month close", "month-end", "close", "mtd", "monthly variance",
     ],
     weight: 7,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const may = s.currentMonth;
       const apr = s.priorMonth;
       const mayVar = may.actual - may.budget;
       const aprVar = apr.actual - apr.budget;
+
+      if (ctx.outputMode === 'question_answering') {
+        const dir = mayVar > 0 ? 'over' : 'under';
+        return {
+          answer: `May closed at ${fmt(may.actual)} — ${fmt(Math.abs(mayVar))} ${dir} the ${fmt(may.budget)} budget (${pct(mayVar / may.budget)}). That's ${pct(Math.abs(s.momGrowthPct))} ${s.momGrowthPct > 0 ? 'higher than' : 'lower than'} April. Main drivers: AWS EC2 (+${fmt(26_000)}) and Deloitte scope creep (+${fmt(12_000)}), partially offset by deferred hardware refresh (-${fmt(18_000)}). Want the full month-end breakdown?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**May 2026 Month Close — Performance Summary**
 
@@ -281,10 +347,21 @@ IT headcount is ${(s.fillRate * 100).toFixed(0)}% filled. Open positions are bei
       "outlook", "year forecast", "fy2026", "fy 2026", "full year view",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const overrun    = s.fullYearForecast - s.fullYearBudget;
       const mitigated  = overrun * 0.60;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `Full-year IT forecast is ${fmt(s.fullYearForecast)} vs. the ${fmt(s.fullYearBudget)} budget — ${fmt(overrun)} unfavorable (${pct(overrun / s.fullYearBudget)}). If AWS EDP + FinOps right-sizing execute on schedule, that compresses to ~${fmt(mitigated)}. H2 risk: ML infrastructure expansion (~${fmt(400_000)}) not yet in plan. Want the detailed forecast build or scenario analysis?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Full-Year 2026 IT Forecast — CFO View**
 
@@ -333,9 +410,19 @@ H2 roadmap includes an expanded ML inference layer not yet in plan — estimated
       "best practice", "standard", "market", "competitive",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
-      const itSpendPct = 0.042; // IT spend as % of revenue (simulated)
+      const itSpendPct = 0.042;
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `IT spend is ~${pct(itSpendPct)} of revenue — upper quartile for our sector (industry median 3.2–4.8%). Cloud is ${pct(s.cloudYTD / s.ytdActual)} of IT, above the 35–45% average for cloud-forward firms. External labor at ~${pct(s.laborYTD / s.ytdActual)} is above the <10% best-practice target. Cost per supported user is within the $8K–$15K industry range. Want a full benchmark breakdown?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**IT Spend Benchmarking — Industry Comparison**
 
@@ -374,8 +461,19 @@ With ${s.hcSummary.filled + 12} active contractors and FTEs supporting an estima
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `YTD IT spend is ${fmt(s.ytdActual)} — tracking ${pct(Math.abs(s.ytdVariancePct))} unfavorable vs. budget. Cloud and external labor are the primary drivers. AWS contract expires in ${s.daysUntil("2026-06-30")} days. What do you want to look at?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**CFO Agent — Ready to Help**
 

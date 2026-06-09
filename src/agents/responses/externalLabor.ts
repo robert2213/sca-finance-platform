@@ -26,9 +26,21 @@ export const externalLaborResponses: Route[] = [
       "over approved", "gone over", "over-budget", "above budget",
     ],
     weight: 9,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct, dt } = s;
       const ob = s.overBudgetContractors;
+
+      if (ctx.outputMode === 'question_answering') {
+        const largest = ob.reduce((max, c) => (c.ytdSpend - c.budget) > (max.ytdSpend - max.budget) ? c : max, ob[0]);
+        return {
+          answer: `${ob.length} contractor${ob.length === 1 ? '' : 's'} over their approved SOW budgets — ${fmt(s.totalExcessLabor)} total excess. ${largest?.name ?? 'Top contractor'} has the largest overage (${fmt(largest ? largest.ytdSpend - largest.budget : 0)}). Root cause: informal scope expansion without PO amendments — an internal controls gap. All ${ob.length} need formal PO amendments before the June 30 close. Want the full breakdown?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Over-Budget Contractor Analysis — ${s.periodLabel}**
 
@@ -37,7 +49,6 @@ export const externalLaborResponses: Route[] = [
 ${ob.map(c => {
   const excess    = c.ytdSpend - c.budget;
   const excessPct = c.budget > 0 ? excess / c.budget : 0;
-  const monthlyPace = c.ytdSpend / 5;
   return `**${c.name}** (${c.role})
    Vendor: ${c.vendor} | Cost Center: ${c.costCenterName}
    YTD Spend: ${fmt(c.ytdSpend)} vs. Budget: ${fmt(c.budget)}
@@ -88,12 +99,24 @@ Without formal amendments, these charges cannot be recognized in the period and 
       "instead of contractor", "bring in house", "insource", "convert to",
     ],
     weight: 9,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt } = s;
-      // Identify long-tenure candidates (simplified: all Active contractors)
-      const activeLong = s.overBudgetContractors.length > 0
-        ? s.contractors.filter(c => c.status === "Active").slice(0, 3)
-        : s.contractors.filter(c => c.status === "Active").slice(0, 3);
+      const activeLong = s.contractors.filter(c => c.status === "Active").slice(0, 3);
+      const totalSavings = activeLong.reduce((total, c) => {
+        const annualContractorCost = c.monthlyRate * 12;
+        const estimatedFTECost     = annualContractorCost * 0.72 * 1.25;
+        return total + (annualContractorCost - estimatedFTECost);
+      }, 0);
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `3 long-tenure contractors are good FTE conversion candidates — ~${fmt(totalSavings)}/year in savings (28–32% lower total comp). Priya Nair, Anita Patel, and Tasha Williams all at 10+ months. Non-compete review needed for the Apex Consulting placements. 8–10 week conversion timeline. Want the economics on any specific candidate?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
 
       return {
         answer: `**Contractor-to-FTE Conversion Analysis**
@@ -102,8 +125,8 @@ Three contractors are strong candidates for FTE conversion based on engagement d
 
 ${activeLong.map((c, i) => {
   const annualContractorCost = c.monthlyRate * 12;
-  const estimatedFTESalary   = c.monthlyRate * 12 * 0.72; // ~28% lower total comp
-  const benefitsCost         = estimatedFTESalary * 0.25; // ~25% benefits load
+  const estimatedFTESalary   = c.monthlyRate * 12 * 0.72;
+  const benefitsCost         = estimatedFTESalary * 0.25;
   const totalFTECost         = estimatedFTESalary + benefitsCost;
   const savings              = annualContractorCost - totalFTECost;
   return `**${i + 1}. ${c.name} — ${c.role}**
@@ -113,11 +136,7 @@ ${activeLong.map((c, i) => {
    Risk: Knowledge loss during transition if hire takes >60 days`;
 }).join("\n\n")}
 
-**Total Conversion Savings: ${fmt(activeLong.reduce((total, c) => {
-  const annualContractorCost = c.monthlyRate * 12;
-  const estimatedFTECost     = annualContractorCost * 0.72 * 1.25;
-  return total + (annualContractorCost - estimatedFTECost);
-}, 0))}/year**
+**Total Conversion Savings: ${fmt(totalSavings)}/year**
 
 **Conversion Process Timeline**
 - Week 1–2: Compensation benchmarking (Radford/Mercer)
@@ -130,7 +149,7 @@ ${activeLong.map((c, i) => {
 - Non-compete review required for Apex Consulting engagements (Priya, Anita)
 - Budget amendment needed to shift spend from OpEx (contractor) to partially CapEx (FTE salary can be partially capitalized if software development)`,
         keyPoints: [
-          `3 contractors identified for FTE conversion — ${fmt(activeLong.reduce((t, c) => t + c.monthlyRate * 12 * 0.72 * 0.28, 0))}/year in savings`,
+          `3 contractors identified for FTE conversion — ~${fmt(totalSavings)}/year in savings`,
           "Blended contractor-to-FTE cost reduction: ~28% on total compensation",
           "Non-compete review required for Apex Consulting placements",
           "FTE conversion timeline: 8–10 weeks — plan for parallel contractor overlap period",
@@ -153,12 +172,23 @@ ${activeLong.map((c, i) => {
       "at this rate", "rate of spend", "monthly spend",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const avgMonthlyBurn = s.laborYTD / 5;
       const remainingBudget = s.laborBudget - s.laborYTD;
-      const remainingMonths = 7; // June–December
+      const remainingMonths = 7;
       const budgetMonthlyAllowance = remainingBudget / remainingMonths;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `Monthly contractor burn is ${fmt(avgMonthlyBurn)} — ${fmt(avgMonthlyBurn - budgetMonthlyAllowance)} above the sustainable rate needed to land in budget. At this pace, full-year contractor spend is ${fmt(avgMonthlyBurn * 12)} vs. ${fmt(s.laborBudget)} budget. Need to reduce by ~${Math.ceil((avgMonthlyBurn - budgetMonthlyAllowance) / 15_000)} engagements or get a formal budget amendment. Want the individual burn rates?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Contractor Burn Rate Analysis — ${s.periodLabel}**
 
@@ -212,9 +242,20 @@ The remaining ${remainingMonths} months must average ${fmt(budgetMonthlyAllowanc
       "contractor ending", "when does", "how long",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, dt } = s;
       const ending = s.endingSoonContractors;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `${ending.length} contractor${ending.length === 1 ? '' : 's'} ending within 90 days — extension decisions needed by mid-June (2-week vendor lead time). Marcus Webb (Cybersecurity): recommend extension, IAM Architect still open and creating a security coverage gap. Ryan Kowalski (ServiceNow): evaluate based on ITSM platform renewal decision. Want the full extension analysis?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Contractor Engagements Ending This Quarter**
 
@@ -261,8 +302,19 @@ Both contractors should complete a knowledge transfer package (system documentat
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `${s.contractors.filter(c => c.status !== "On Hold").length} active contractors, ${fmt(s.laborYTD)} spent YTD vs. ${fmt(s.laborBudget)} budget. ${s.overBudgetContractors.length} over budget (${fmt(s.totalExcessLabor)} excess), ${s.endingSoonContractors.length} engagements ending this quarter. What do you want to dig into?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**External Labor Agent — Ready to Help**
 

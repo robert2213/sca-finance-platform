@@ -56,7 +56,7 @@ export const cioResponses: Route[] = [
 
 **GCP — Fastest Growing (MoM: ${pct(s.cloudMoMGrowth)})**
 - BigQuery: largest variance driver — usage-based pricing, self-serve analytics adoption spike
-- Vertex AI/ML: 57% spend growth Jan–May — tied to Nexora AI platform roadmap
+- Vertex AI/ML: 57% spend growth Jan–May — tied to Board-approved AI platform roadmap
 - GKE: actually declining — workload optimization paying off
 
 **FinOps Opportunity**
@@ -101,7 +101,7 @@ Identified savings of ${fmt(s.cloudYTD * 0.15)} (15% of YTD cloud spend) through
 **Five CIO Talking Points**
 
 **1. Strategic Investment, Not Cost Overrun**
-Our ${pct(Math.abs(s.ytdVariancePct))} variance vs. budget is driven by AI/ML infrastructure investment — specifically AWS EC2 scaling for the Nexora AI inference platform and GCP Vertex AI training workloads. This spend is tied directly to the Board-approved product roadmap. Without it, we miss Q3 AI feature commitments.
+Our ${pct(Math.abs(s.ytdVariancePct))} variance vs. budget is driven by AI/ML infrastructure investment — specifically AWS EC2 scaling for the AI inference platform and GCP Vertex AI training workloads. This spend is tied directly to the Board-approved product roadmap. Without it, we miss Q3 AI feature commitments.
 
 **2. Cloud Spend is Growing — and We're Acting**
 Cloud represents ${pct(s.cloudYTD / s.ytdActual)} of IT spend. We acknowledge the growth rate (${pct(s.cloudMoMGrowth)} MoM in May) is above plan. We have launched a FinOps program targeting ${fmt(s.cloudYTD * 0.15)} in savings and are in active EDP negotiation with AWS for a 12–15% discount on our largest cloud contract.
@@ -230,7 +230,7 @@ Post-FinOps target: ${fmt(s.cloudYTD / 5 * 12 - totalCloudSavings)}/year
 **Strategic Investment Breakdown**
 Of the total ${fmt(s.ytdActual)} in IT spend, approximately 68% is operational (keep-the-lights-on) and 32% is strategic investment tied to product roadmap or transformation programs:
 
-- Nexora AI Platform infrastructure: ~${fmt(s.cloudYTD * 0.40)} (AWS EC2 + GCP Vertex AI)
+- AI Platform infrastructure: ~${fmt(s.cloudYTD * 0.40)} (AWS EC2 + GCP Vertex AI)
 - ERP Modernization (SAP + Deloitte): ~${fmt(350_000)}
 - Data Platform buildout (Snowflake + BigQuery): ~${fmt(280_000)}
 - Security capability uplift (Palo Alto + IAM): ~${fmt(170_000)}
@@ -242,7 +242,7 @@ The AI Platform investment is directly tied to ${fmt(2_100_000)} in incremental 
 IT spend is growing at approximately 8% year-over-year, above the company's revenue growth rate of 6%. This premium investment reflects a strategic decision to build ahead of demand — consistent with the technology-forward posture the Board endorsed.`,
         keyPoints: [
           `Total IT investment: ${fmt(s.ytdActual)} — cloud at ${pct(cloudPct)} of total spend`,
-          "68% operational / 32% strategic — Nexora AI platform is the largest strategic investment",
+          "68% operational / 32% strategic — AI platform is the largest strategic investment",
           "AI platform investment linked to $2.1M incremental H2 revenue (1.4x ROI)",
           `IT spend growing at ~8% YoY vs. 6% revenue growth — Board-endorsed strategic investment`,
           "External labor and professional services are the variance drivers vs. FTE labor (on budget)",

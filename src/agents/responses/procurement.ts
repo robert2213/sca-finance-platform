@@ -26,11 +26,23 @@ export const procurementResponses: Route[] = [
       "next 6 months", "next 90 days", "soon", "ending",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, dt, daysUntil } = s;
       const exp90  = s.expiringVendors90;
       const exp180 = s.expiringVendors180;
       const warningOnly = exp180.filter(v => !exp90.find(c => c.id === v.id));
+
+      if (ctx.outputMode === 'question_answering') {
+        const noAutoRenew = exp90.filter(v => !v.autoRenew);
+        return {
+          answer: `${exp90.length} contract${exp90.length === 1 ? '' : 's'} expiring within 90 days — ${noAutoRenew.length > 0 ? noAutoRenew.map(v => v.name).join(', ') + ' have no auto-renew and need manual action' : 'all have auto-renew'}. AWS is most urgent: expires in ${daysUntil('2026-06-30')} days (${fmt(s.topVendors.find(v => v.name.includes('Amazon'))?.annualValue ?? 4_560_000)}/yr) — the EDP negotiation window closes then. Want the full renewal pipeline?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Contract Renewal Pipeline — ${s.periodLabel}**
 
@@ -82,9 +94,20 @@ Third: **ServiceNow + Okta** both expire August 31. Consider bundled negotiation
       "reliance", "too much", "aws reliance", "vendor risk", "spread",
     ],
     weight: 8,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
       const totalSpend = s.vendorYTDSpend;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `AWS is your biggest concentration risk at ~31% of total vendor spend — above the recommended 25% cap. Combined cloud (AWS + Azure + GCP) is 56% of vendor spend. Accenture + Deloitte combined are ${fmt(2_760_000)} in annual commitments (22%) and both expire within 6 months. Top 5 vendors account for 68% of total. Want the full concentration analysis?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Vendor Spend Concentration Analysis — ${s.periodLabel}**
 
@@ -135,16 +158,28 @@ ${s.topVendors.map((v, i) => {
       "how do i negotiate", "negotiation strategy", "terms", "deal",
     ],
     weight: 9,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt } = s;
+      const awsAnnualValue = s.topVendors.find(v => v.name.includes("Amazon"))?.annualValue ?? 4_560_000;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `Three key renewals coming up — AWS (${s.daysUntil("2026-06-30")} days), ServiceNow and Okta (both Aug 31). AWS is the most valuable: multi-cloud leverage to push for a 3-year EDP at ~13% discount (~${fmt(awsAnnualValue * 0.13)}/yr savings). ServiceNow: get a competitive quote even if you're not serious — resets their confidence. Okta: push for contractor user tier pricing (50–60% of employee rate). Want the full negotiation playbook?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Vendor Negotiation Strategy — Key Upcoming Renewals**
 
 **1. AWS (Expires June 30) — Enterprise Discount Program (EDP)**
 
-*Our Position*: We spend ${fmt(s.topVendors.find(v => v.name.includes("Amazon"))?.annualValue ?? 4_560_000)}/year. We have active GCP and Azure relationships. This gives us credible multi-cloud leverage.
+*Our Position*: We spend ${fmt(awsAnnualValue)}/year. We have active GCP and Azure relationships. This gives us credible multi-cloud leverage.
 
-*Target*: 3-year EDP commitment at ${fmt((s.topVendors.find(v => v.name.includes("Amazon"))?.annualValue ?? 4_560_000) * 0.87)}/year (13% discount).
+*Target*: 3-year EDP commitment at ${fmt(awsAnnualValue * 0.87)}/year (13% discount).
 
 *Tactics*:
 - Bring GCP migration proposal to the table — AWS will defend share aggressively
@@ -176,7 +211,7 @@ ${s.topVendors.map((v, i) => {
 - Request contractor/external user pricing tier (50–60% of employee rate)`,
         keyPoints: [
           "AWS: multi-cloud leverage is your best card — credibly reference GCP migration",
-          "Target 13% AWS EDP discount on $4.56M commitment = $593K annual savings",
+          `Target 13% AWS EDP discount on ${fmt(awsAnnualValue)} commitment = ${fmt(awsAnnualValue * 0.13)} annual savings`,
           "ServiceNow: get competitive quote even if not serious — resets their confidence",
           "Okta: push for contractor user tier pricing — could save $40–60K",
           "All three should be negotiated in parallel — June/July window is optimal",
@@ -199,8 +234,19 @@ ${s.topVendors.map((v, i) => {
       "total spend", "commitment", "portfolio", "contracts overview",
     ],
     weight: 6,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt, pct } = s;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `12 active contracts, ${fmt(s.vendorCommitment)} annual commitment, ${fmt(s.vendorYTDSpend)} spent YTD. ${s.expiringVendors180.length} contracts expiring within 180 days — ${s.expiringVendors180.filter(v => !v.autoRenew).length} without auto-renew. Cloud = 56% of commitment, professional services = 22%. AWS expires in ${s.daysUntil("2026-06-30")} days. Want the full portfolio breakdown or the expiry pipeline?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Vendor Portfolio Overview — ${s.periodLabel}**
 
@@ -242,8 +288,19 @@ ${s.expiringVendors180.slice(0, 5).map(v => `- ${v.name}: ${fmt(v.annualValue)}/
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
+    handler(ctx) {
+      const { snapshot: s } = ctx;
       const { fmt } = s;
+
+      if (ctx.outputMode === 'question_answering') {
+        return {
+          answer: `AWS contract expires in ${s.daysUntil("2026-06-30")} days — EDP negotiation window is open. ${s.expiringVendors180.length} contracts in the renewal pipeline, ${s.expiringVendors180.filter(v => !v.autoRenew).length} without auto-renew. What do you want to look at?`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
       return {
         answer: `**Procurement Agent — Ready to Help**
 
