@@ -219,13 +219,7 @@ function buildMonthlyForecastMockResponse(
   const projected = recentAvg * (1 + s.momGrowthPct);
 
   return {
-    answer: `I don't have a separate ${monthName} forecast value in the current data set. Here's what I can show you for ${monthName}:
-
-- ${monthName} Actuals: not yet available (data through ${s.currentMonth.month} 2026)
-- ${monthName} Budget: ~${fmt(monthlyBudget)} (per approved plan)
-- Variance vs Budget: not yet determinable
-
-Would you like me to estimate a ${monthName} forecast based on the run rate from prior months, or would the full-year forecast be more useful here?`,
+    answer: `${monthName} forecast is approximately ${fmt(projected)} based on the current run rate through ${s.currentMonth.month} 2026. ${monthName} budget is ~${fmt(monthlyBudget)} — projected variance is ${fmt(projected - monthlyBudget)} (${pct((projected - monthlyBudget) / monthlyBudget)}). Actuals will be available when ${monthName} closes. Want a full-year projection or cost center breakdown?`,
     keyPoints: [
       `${monthName} data not yet available — current data through ${s.currentMonth.month} 2026`,
       `Projected run-rate: ~${fmt(projected)} (3-month average + MoM trend)`,
