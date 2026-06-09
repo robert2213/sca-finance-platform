@@ -378,7 +378,58 @@ ${s.contractors.filter(c => c.status === "Active" || c.status === "Over Budget")
     },
   },
 
-  // ── 7. Default ────────────────────────────────────────────────────────────
+  // ── 7. Business unit risk ─────────────────────────────────────────────────
+  {
+    key: "bu-risk",
+    keywords: [
+      "risk", "greatest risk", "highest risk", "at risk", "most at risk",
+      "business unit risk", "which business unit", "which bu", "bu risk",
+      "riskiest", "biggest risk",
+    ],
+    weight: 8,
+    handler(ctx) {
+      const { snapshot: s } = ctx;
+      const { fmt, pct } = s;
+      const ranked = s.byBU
+        .filter(b => b.variance > 0)
+        .sort((a, b) => b.variance - a.variance);
+
+      if (ranked.length === 0) {
+        return {
+          answer: `All business units are tracking at or under budget through ${s.currentMonth.month} 2026 — no BU is in a risk position.`,
+          keyPoints: [],
+          riskFlags: [],
+          actions: [],
+        };
+      }
+
+      const top    = ranked[0];
+      const vPct   = top.budget > 0 ? top.variance / top.budget : 0;
+      const second = ranked[1];
+      const sVPct  = second && second.budget > 0 ? second.variance / second.budget : 0;
+
+      const driver = top.bu.toLowerCase().includes('cloud')
+        ? 'cloud compute scaling above plan'
+        : top.bu.toLowerCase().includes('data')
+        ? 'Snowflake consumption overages'
+        : top.bu.toLowerCase().includes('app') || top.bu.toLowerCase().includes('enterprise')
+        ? 'consulting scope expansion'
+        : 'a budget overrun without an approved amendment';
+
+      const secondSentence = second
+        ? ` ${second.bu} is second at ${fmt(second.variance)} over (${pct(sVPct)} unfavorable).`
+        : '';
+
+      return {
+        answer: `${top.bu} is the highest-risk business unit. It is ${fmt(top.variance)} over budget YTD — the largest BU variance at ${pct(vPct)} unfavorable — and the risk is tied to ${driver}.${secondSentence}`,
+        keyPoints: [],
+        riskFlags: [],
+        actions: [],
+      };
+    },
+  },
+
+  // ── 8. Default ────────────────────────────────────────────────────────────
   {
     key: "default",
     keywords: [],
