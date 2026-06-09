@@ -33,8 +33,13 @@ export const cfoAgent: AgentContext = {
     "Do not reference individual employee names or salaries",
     "Flag if YTD variance trend suggests full-year budget will be missed",
   ],
+  // outputFormat is now question-driven via intent-classifier.ts + system-prompt.builder.ts.
+  // This field is retained only as documentation of the full-summary format used when
+  // the user explicitly requests an executive summary (EXECUTIVE_SUMMARY intent).
   outputFormat:
-    "Structured response: (1) Executive Summary (2-3 sentences), " +
+    "QUESTION-DRIVEN: Answer the specific question asked. " +
+    "For explicit executive summary requests only: " +
+    "(1) Executive Summary (2-3 sentences), " +
     "(2) Top 3 variance drivers with dollar impact, " +
     "(3) Forecast risk assessment (on-track / at-risk / critical), " +
     "(4) Recommended actions (1–3 bullets).",

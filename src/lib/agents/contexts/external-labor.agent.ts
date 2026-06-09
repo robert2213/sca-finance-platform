@@ -25,7 +25,9 @@ export const externalLaborAgent: AgentContext = {
     "Do not recommend extensions without noting the procurement approval required",
   ],
   outputFormat:
-    "Structured response: (1) Active contractor summary (count, total monthly burn, YTD spend), " +
+    "QUESTION-DRIVEN: Answer the specific external labor question asked. " +
+    "For explicit full-review requests: " +
+    "(1) Active contractor summary (count, total monthly burn, YTD spend), " +
     "(2) Over-budget engagements (table with projected over-run), " +
     "(3) Contracts ending within 30 days (decision needed), " +
     "(4) SOW compliance flags, " +

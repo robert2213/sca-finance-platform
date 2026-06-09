@@ -25,7 +25,9 @@ export const validationAgent: AgentContext = {
     "Suggest a specific column or file correction for each error category found",
   ],
   outputFormat:
-    "Structured response: (1) Validation summary (rows processed, errors, warnings, passed/failed), " +
+    "QUESTION-DRIVEN: Answer the specific data quality question asked. " +
+    "For explicit full validation review requests: " +
+    "(1) Validation summary (rows processed, errors, warnings, passed/failed), " +
     "(2) Error list grouped by type with remediation instructions, " +
     "(3) Warning list with risk assessment, " +
     "(4) Recommended next steps before re-upload.",

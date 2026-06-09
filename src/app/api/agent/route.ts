@@ -2,17 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
 import { getFinanceSnapshot } from "@/agents/dataContext";
-import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
+import { buildSystemPrompt, classifyIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 import type { AgentId } from "@/types/finance";
 import type { ConversationTurn } from "@/agents/agentEngine";
 
-const MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 2048;
-const MAX_RETRIES = 2;
+const MODEL         = "claude-sonnet-4-6";
+const MAX_TOKENS    = 2048;
+const MAX_RETRIES   = 2;
 const RETRY_DELAY_MS = 1000;
 
-// Lazy-initialize the client — only created when ANTHROPIC_API_KEY is present.
+// ── Pipeline log helper ────────────────────────────────────────────────────────
+// Emit structured JSON logs at each pipeline stage so every layer is traceable.
+// In production, pipe to your log aggregator; locally, visible in `next dev` terminal.
+
+function pipelineLog(stage: string, data: Record<string, unknown>) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), stage, ...data });
+  console.log(`[PIPELINE] ${line}`);
+}
+
+// Lazy-initialize the Anthropic client — only created when API key is present.
 let _client: Anthropic | null = null;
 
 function getClient(): Anthropic | null {
@@ -28,7 +37,7 @@ function sleep(ms: number) {
 
 // Convert internal history to Anthropic messages format
 function toAnthropicMessages(
-  history: ConversationTurn[],
+  history:  ConversationTurn[],
   question: string
 ): Anthropic.MessageParam[] {
   const messages: Anthropic.MessageParam[] = [];
@@ -48,7 +57,6 @@ function toAnthropicMessages(
   for (const msg of messages) {
     const last = merged[merged.length - 1];
     if (last && last.role === msg.role) {
-      // Concatenate content
       const prevContent = typeof last.content === "string" ? last.content : "";
       const newContent  = typeof msg.content  === "string" ? msg.content  : "";
       last.content = prevContent + "\n\n" + newContent;
@@ -66,17 +74,58 @@ function toAnthropicMessages(
 }
 
 async function callClaude(
-  agentId: AgentId,
+  agentId:  AgentId,
   question: string,
-  history: ConversationTurn[],
-  attempt = 0
+  history:  ConversationTurn[],
+  attempt   = 0
 ): Promise<ReturnType<typeof parseAgentResponse>> {
   const client = getClient();
   if (!client) throw new Error("ANTHROPIC_API_KEY not configured");
 
+  // ── Layer 1: Intent classification ────────────────────────────────────────
+  const intent = classifyIntent(question);
+  pipelineLog("INTENT_CLASSIFIED", {
+    agentId,
+    question,
+    intent:       intent.intent,
+    confidence:   intent.confidence,
+    dataSections: intent.dataSections,
+  });
+
+  // ── Layer 2: System prompt construction ───────────────────────────────────
   const snapshot     = getFinanceSnapshot();
-  const systemPrompt = buildSystemPrompt(agentId, snapshot);
-  const messages     = toAnthropicMessages(history, question);
+  const systemPrompt = buildSystemPrompt(agentId, snapshot, question);
+
+  pipelineLog("SYSTEM_PROMPT_BUILT", {
+    agentId,
+    intent:        intent.intent,
+    promptLength:  systemPrompt.length,
+    dataSections:  intent.dataSections,
+    // In development, log the full prompt so you can verify the question directive is present.
+    // Remove or gate behind DEBUG_PROMPTS=true in production if prompts are large.
+    ...(process.env.NODE_ENV === "development" && {
+      systemPromptPreview: systemPrompt.slice(0, 600) + (systemPrompt.length > 600 ? "…[truncated]" : ""),
+    }),
+  });
+
+  // ── Layer 3: Message construction ────────────────────────────────────────
+  const messages = toAnthropicMessages(history, question);
+
+  pipelineLog("MESSAGES_BUILT", {
+    agentId,
+    question,
+    questionReachedMessages: messages[messages.length - 1]?.content === question,
+    messageCount:  messages.length,
+    lastMessage:   messages[messages.length - 1],
+  });
+
+  // ── Layer 4: Claude API call ───────────────────────────────────────────────
+  pipelineLog("CLAUDE_REQUEST_SENT", {
+    agentId,
+    model:      MODEL,
+    maxTokens:  MAX_TOKENS,
+    attempt,
+  });
 
   try {
     const msg = await client.messages.create({
@@ -91,18 +140,43 @@ async function callClaude(
       .map(b => b.text)
       .join("");
 
-    console.log(`[Agent API] Claude responded | agent=${agentId} | stop_reason=${msg.stop_reason} | tokens=${msg.usage.output_tokens}`);
+    // ── Layer 5: Response received ─────────────────────────────────────────
+    pipelineLog("CLAUDE_RESPONSE_RECEIVED", {
+      agentId,
+      stopReason:   msg.stop_reason,
+      inputTokens:  msg.usage.input_tokens,
+      outputTokens: msg.usage.output_tokens,
+      rawLength:    rawText.length,
+    });
 
-    return parseAgentResponse(rawText);
+    // ── Layer 6: Parse response ────────────────────────────────────────────
+    const parsed = parseAgentResponse(rawText);
+
+    pipelineLog("RESPONSE_PARSED", {
+      agentId,
+      hasAnswer:    Boolean(parsed.answer),
+      answerLength: parsed.answer?.length ?? 0,
+      keyPoints:    parsed.keyPoints?.length ?? 0,
+      actions:      parsed.actions?.length ?? 0,
+      confidence:   parsed.confidence,
+    });
+
+    return parsed;
 
   } catch (err: unknown) {
     const isRetryable =
       err instanceof Anthropic.APIError &&
       (err.status === 529 || err.status === 503 || err.status === 429);
 
+    pipelineLog("CLAUDE_ERROR", {
+      agentId,
+      attempt,
+      error:      (err as Error).message,
+      retryable:  isRetryable,
+    });
+
     if (isRetryable && attempt < MAX_RETRIES) {
       const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-      console.warn(`[Agent API] Retrying (attempt ${attempt + 1}) after ${delay}ms | error: ${(err as Error).message}`);
       await sleep(delay);
       return callClaude(agentId, question, history, attempt + 1);
     }
@@ -123,6 +197,14 @@ export async function POST(request: NextRequest) {
 
     const { agentId, question, history = [] } = body;
 
+    // ── Layer 0: Request received ─────────────────────────────────────────
+    pipelineLog("REQUEST_RECEIVED", {
+      agentId,
+      question,
+      questionLength: question?.length ?? 0,
+      historyTurns:   history.length,
+    });
+
     if (!agentId || !question?.trim()) {
       return NextResponse.json(
         { error: "agentId and question are required" },
@@ -133,24 +215,34 @@ export async function POST(request: NextRequest) {
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
     if (hasApiKey) {
-      // ── Real Claude path ────────────────────────────────────────────────────
+      // ── Real Claude path ────────────────────────────────────────────────
       try {
         const response = await callClaude(agentId, question, history);
-        console.log(`[Agent API] Claude | agent=${agentId} | ${Date.now() - startMs}ms`);
+        pipelineLog("REQUEST_COMPLETE", {
+          agentId,
+          mode:    "live",
+          elapsedMs: Date.now() - startMs,
+        });
         return NextResponse.json({ ...response, routeKey: "claude", mode: "live" });
 
       } catch (claudeErr: unknown) {
-        // Log and fall through to mock
-        console.error(`[Agent API] Claude failed, falling back to mock | ${(claudeErr as Error).message}`);
-        // Fall through to mock below
+        pipelineLog("CLAUDE_FALLBACK_TO_MOCK", {
+          agentId,
+          error: (claudeErr as Error).message,
+        });
+        // Fall through to mock
       }
     }
 
-    // ── Mock fallback path ──────────────────────────────────────────────────
-    // Used when no API key is present, or Claude errors after retries.
-    await sleep(400 + Math.random() * 800); // realistic latency simulation
+    // ── Mock fallback path ───────────────────────────────────────────────
+    await sleep(400 + Math.random() * 800);
     const mockResponse = dispatchAgent(agentId, question, history);
-    console.log(`[Agent API] Mock | agent=${agentId} | ${Date.now() - startMs}ms`);
+    pipelineLog("REQUEST_COMPLETE", {
+      agentId,
+      mode:      "mock",
+      routeKey:  mockResponse.routeKey,
+      elapsedMs: Date.now() - startMs,
+    });
     return NextResponse.json({ ...mockResponse, mode: "mock" });
 
   } catch (err) {

@@ -25,7 +25,9 @@ export const procurementAgent: AgentContext = {
     "Do not recommend contract termination without noting potential service impact",
   ],
   outputFormat:
-    "Structured response: (1) Contracts expiring within 90 days (table), " +
+    "QUESTION-DRIVEN: Answer the specific procurement question asked. " +
+    "For explicit contract-review requests: " +
+    "(1) Contracts expiring within 90 days (table), " +
     "(2) High-risk vendor flags, " +
     "(3) Spend vs. contract value variances, " +
     "(4) Concentration risk summary, " +

@@ -27,7 +27,9 @@ export const cioAgent: AgentContext = {
     "Do not overstate ROI without grounding it in observable metrics",
   ],
   outputFormat:
-    "Executive-ready response: (1) IT investment headline (1 sentence), " +
+    "QUESTION-DRIVEN: Answer the specific IT finance question asked. " +
+    "For explicit briefing/narrative requests: " +
+    "(1) IT investment headline (1 sentence), " +
     "(2) Key financial metrics with business context, " +
     "(3) Cloud and vendor highlights, " +
     "(4) Workforce and capability outlook, " +

@@ -25,7 +25,9 @@ export const headcountAgent: AgentContext = {
     "Distinguish between headcount cost (salary) and labor cost (contractors + salary combined)",
   ],
   outputFormat:
-    "Structured response: (1) Fill rate by business unit (table), " +
+    "QUESTION-DRIVEN: Answer the specific headcount question asked directly. " +
+    "For explicit full-report requests: " +
+    "(1) Fill rate by business unit (table), " +
     "(2) Open requisitions summary (count, duration, budget impact), " +
     "(3) Total compensation vs. budget, " +
     "(4) Headcount trend (vs. prior period if available), " +

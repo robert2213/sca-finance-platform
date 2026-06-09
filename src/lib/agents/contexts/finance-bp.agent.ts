@@ -26,7 +26,8 @@ export const financeBpAgent: AgentContext = {
     "Confirm scope (which business unit) before providing any analysis",
   ],
   outputFormat:
-    "Conversational response scoped to the user's business unit: " +
+    "QUESTION-DRIVEN: Answer the specific business partner question asked. " +
+    "For explicit monthly review requests: " +
     "(1) Plain-language summary of current position, " +
     "(2) What is driving the variance (operational context), " +
     "(3) Recommended next step for the budget owner, " +

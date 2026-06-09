@@ -24,8 +24,12 @@ export const fpaAgent: AgentContext = {
     "Note when forecast is stale (forecasted_at older than 45 days)",
     "Do not recommend budget amendments without flagging for finance leadership approval",
   ],
+  // outputFormat is now question-driven via intent-classifier.ts + system-prompt.builder.ts.
+  // Full variance report format is used only when the user explicitly requests a summary.
   outputFormat:
-    "Structured response: (1) Variance summary table (BU × period), " +
+    "QUESTION-DRIVEN: Answer the specific variance or forecast question asked. " +
+    "For explicit summary requests only: " +
+    "(1) Variance summary table (BU × period), " +
     "(2) Top drivers (over and under), " +
     "(3) Category breakdown, " +
     "(4) Forecast accuracy vs. prior periods, " +
