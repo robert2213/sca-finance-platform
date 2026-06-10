@@ -59,15 +59,28 @@ function toMonth(period: string): Month {
   return MONTH_NAMES[period.slice(5, 7)] ?? "Jan";
 }
 
+// ─── YTD period constants ─────────────────────────────────────────────────────
+// Both bounds are required for multi-year databases. Updating one without the
+// other will silently include or exclude prior-year data.
+
+/** First period of the current fiscal year. Update alongside YTD_CUTOFF at each year-close. */
+export const YTD_START  = "2026-01";
+
+/** Last closed reporting period. All YTD queries default to this cutoff. */
+export const YTD_CUTOFF = "2026-05";
+
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
-/** Monthly budget vs actual vs forecast totals (all periods, or filtered by year). */
+/**
+ * Monthly budget vs actual vs forecast totals.
+ * Scoped to `endPeriod` (defaults to YTD_CUTOFF) so the trend chart never
+ * renders future / forecast-only months.
+ */
 export async function getMonthlyTotals(
   year?: number,
-  clientId: string = "demo-client"
+  clientId: string = "demo-client",
+  endPeriod: string = YTD_CUTOFF
 ): Promise<MonthlyTotal[]> {
-  // Year filter uses a parameterized binding (not string interpolation) to avoid mixing
-  // literal injection with parameterized values in the WHERE clause.
   const yearClause = year ? "AND CAST(substr(period, 1, 4) AS INTEGER) = ?" : "";
   const sql = `
     SELECT
@@ -78,11 +91,12 @@ export async function getMonthlyTotals(
     FROM fact_transactions
     WHERE transaction_type IN ('actual', 'budget')
     ${yearClause}
+    AND period <= ?
     AND client_id = ?
     GROUP BY period
     ORDER BY period
   `;
-  const params: unknown[] = year ? [year, clientId] : [clientId];
+  const params: unknown[] = year ? [year, endPeriod, clientId] : [endPeriod, clientId];
 
   const result = await dbQuery<{
     period: string;
@@ -104,8 +118,10 @@ export async function getByBusinessUnit(
   period?: string,
   clientId: string = "demo-client"
 ): Promise<BUTotal[]> {
-  // Period filter uses a parameterized binding to avoid string injection.
-  const periodClause = period ? "AND period <= ?" : "";
+  // When a period is supplied, scope to that fiscal year (derived start bound)
+  // so multi-year databases don't bleed prior-year data into the totals.
+  const yearStart    = period ? `${period.slice(0, 4)}-01` : null;
+  const periodClause = period ? "AND period >= ? AND period <= ?" : "";
   const sql = `
     SELECT
       business_unit,
@@ -119,7 +135,7 @@ export async function getByBusinessUnit(
     GROUP BY business_unit
     ORDER BY actual DESC
   `;
-  const params: unknown[] = period ? [period, clientId] : [clientId];
+  const params: unknown[] = period ? [yearStart, period, clientId] : [clientId];
 
   const result = await dbQuery<{
     business_unit: string;
@@ -148,7 +164,8 @@ export async function getByCategory(
   period?: string,
   clientId: string = "demo-client"
 ): Promise<CategoryTotal[]> {
-  const periodClause = period ? "AND period <= ?" : "";
+  const yearStart    = period ? `${period.slice(0, 4)}-01` : null;
+  const periodClause = period ? "AND period >= ? AND period <= ?" : "";
   const sql = `
     SELECT
       category,
@@ -161,7 +178,7 @@ export async function getByCategory(
     GROUP BY category
     ORDER BY actual DESC
   `;
-  const params: unknown[] = period ? [period, clientId] : [clientId];
+  const params: unknown[] = period ? [yearStart, period, clientId] : [clientId];
 
   const result = await dbQuery<{
     category: string;
@@ -232,13 +249,11 @@ export async function getActualsByPeriod(
   });
 }
 
-/** Current closed reporting period — all YTD queries default to this cutoff. */
-export const YTD_CUTOFF = "2026-05";
-
-/** YTD totals — single aggregates, filtered to periods up to and including `period`. */
+/** YTD totals — single aggregates, scoped to [startPeriod, endPeriod]. */
 export async function getYTDSummary(
   clientId: string = "demo-client",
-  period: string = YTD_CUTOFF
+  endPeriod: string = YTD_CUTOFF,
+  startPeriod: string = YTD_START
 ): Promise<{
   actual: number;
   budget: number;
@@ -250,9 +265,11 @@ export async function getYTDSummary(
       SUM(amount_actual) AS actual,
       SUM(amount_budget) AS budget
     FROM fact_transactions
-    WHERE transaction_type IN ('actual', 'budget') AND period <= ? AND client_id = ?
+    WHERE transaction_type IN ('actual', 'budget')
+      AND period >= ? AND period <= ?
+      AND client_id = ?
   `;
-  const result = await dbQuery<{ actual: number; budget: number }>(sql, [period, clientId]);
+  const result = await dbQuery<{ actual: number; budget: number }>(sql, [startPeriod, endPeriod, clientId]);
   const actual   = Number(result.rows[0]?.actual) || 0;
   const budget   = Number(result.rows[0]?.budget) || 0;
   const variance = actual - budget;

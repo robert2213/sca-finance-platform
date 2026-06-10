@@ -14,6 +14,7 @@ import {
   getMonthlyTotals, getByBusinessUnit,
   getOverBudgetContractors, getOpenReqs,
   buildDashboardKPIsFromDB,
+  YTD_CUTOFF,
 } from "@/lib/queries";
 import { getKPIBundle } from "@/lib/services/kpi.service";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
@@ -58,8 +59,8 @@ function SectionHeader({
 
 export default async function DashboardPage() {
   const [monthly, byBU, overConts, allOpenReqs, kpis, risks, bundle] = await Promise.all([
-    getMonthlyTotals(),
-    getByBusinessUnit(),
+    getMonthlyTotals(2026),
+    getByBusinessUnit(YTD_CUTOFF),
     getOverBudgetContractors(),
     getOpenReqs(),
     buildDashboardKPIsFromDB(),

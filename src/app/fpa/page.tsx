@@ -5,7 +5,7 @@ import BudgetVsActualChart from "@/components/charts/BudgetVsActualChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import KPICard from "@/components/dashboard/KPICard";
-import { getMonthlyTotals, getByBusinessUnit, getByCategory, getActualsByPeriod } from "@/lib/queries";
+import { getMonthlyTotals, getByBusinessUnit, getByCategory, getActualsByPeriod, getYTDSummary, YTD_CUTOFF } from "@/lib/queries";
 import { formatCurrency } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -23,17 +23,18 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function FPAPage() {
-  const [monthly, byBU, byCat, mayActuals] = await Promise.all([
-    getMonthlyTotals(),
-    getByBusinessUnit(),
-    getByCategory(),
+  const [monthly, byBU, byCat, mayActuals, ytd] = await Promise.all([
+    getMonthlyTotals(2026),
+    getByBusinessUnit(YTD_CUTOFF),
+    getByCategory(YTD_CUTOFF),
     getActualsByPeriod("2026-05"),
+    getYTDSummary(),
   ]);
 
-  const ytdActual = byBU.reduce((s, b) => s + b.actual, 0);
-  const ytdBudget = byBU.reduce((s, b) => s + b.budget, 0);
-  const ytdVar    = ytdActual - ytdBudget;
-  const ytdVarPct = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
+  const ytdActual = ytd.actual;
+  const ytdBudget = ytd.budget;
+  const ytdVar    = ytd.variance;
+  const ytdVarPct = ytd.variancePct;
   const may       = monthly[monthly.length - 1] ?? { actual: 0, budget: 0 };
   const prevMonth = monthly[monthly.length - 2] ?? { actual: 0, budget: 0 };
   const mayVar    = may.actual - may.budget;
