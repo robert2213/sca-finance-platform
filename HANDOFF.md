@@ -3593,3 +3593,115 @@ Mock path (`dispatchAgent`) remains completely unaffected — it still uses `get
 3. **Sprint 2 Phase 2** — connect dashboard server components to `buildDashboardKPIsFromDB(clientId)`; make KPI server components async; verify chart prop shapes
 4. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
 5. **Sprint 3 auth** — Clerk re-integration; `clientId` from session replaces `defaultConfig.clientId`
+
+---
+
+## Session Update — June 10, 2026 (Vercel Build Fix)
+
+### Sprint: Fix `@databricks/sql` client bundle error caused by Sprint 2 Phase 1
+
+**Problem:** Vercel build failed after Sprint 2 Phase 1 (`a6fa7ff`). Sprint 2 added static module-level imports to `dataContext.ts` from `@/lib/queries/*` and `@/lib/databricks`, making `dataContext.ts` server-only. Two client-side value import chains pulled `@databricks/sql` (a Node.js-only package requiring `fs`, `net`, `tls`) into the client bundle, causing webpack to fail at compile time.
+
+**Scope constraints applied:**
+- Sprint 2 Phase 1 logic not changed
+- `buildSnapshotFromDB()` not removed
+- Query behavior not changed
+- Dashboards not touched beyond `force-dynamic` flags
+- Auth not touched
+- Mock path kept working
+- No client names hardcoded
+
+---
+
+### Root Cause — Two Client Bundle Chains
+
+**Chain 1 (direct):**
+```
+AgentWorkspace.tsx ("use client")
+  └── getAgentResponse (value import) from mockResponses.ts
+        └── dispatchAgent from agentEngine.ts
+              └── getFinanceSnapshot from dataContext.ts  ← now imports @/lib/databricks
+```
+
+**Chain 2 (indirect, via registry):**
+```
+AgentWorkspace.tsx ("use client")
+  └── getAgent (value import) from registry.ts
+        └── cfoRespond, fpaRespond, ... (value imports) from mockResponses.ts
+              └── dispatchAgent from agentEngine.ts
+                    └── getFinanceSnapshot from dataContext.ts
+```
+
+Both chains were broken. The `respond` properties stored in `registry.ts` were confirmed dead code — grep showed zero `.respond(` calls in the entire codebase. `dispatchAgent` uses its own `routeMap` and never reads the registry's `respond` functions.
+
+---
+
+### Files Changed (10 total)
+
+| File | Change |
+|---|---|
+| `src/components/agents/AgentWorkspace.tsx` | Line 5: value import of `getAgentResponse` → `import type`; catch block replaced with inline error UI + early return (removes last-resort `getAgentResponse` call) |
+| `src/agents/types.ts` | `respond` property in `AgentDefinition` made optional (`respond?:`) — enables removal from registry without TS errors |
+| `src/agents/registry.ts` | Removed entire value import block (8 respond functions from `mockResponses.ts`); removed all 8 `respond:` properties from agent entries |
+| `src/app/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/cfo/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/fpa/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/headcount/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/vendors/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/cio/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+| `src/app/external-labor/page.tsx` | Added `export const dynamic = "force-dynamic"` (line 1) |
+
+---
+
+### Why `force-dynamic` Was Needed
+
+Sprint 2 Phase 1 added `AND client_id = ?` to all 5 query modules. The Databricks `client_id` column doesn't exist yet — `migrations/001-add-client-id.sql` has not been run. Next.js App Router runs async Server Components at build time for SSG. All 7 dashboard pages call query functions directly and were hitting the live Databricks instance at `next build`, receiving:
+
+```
+OperationStateError: [UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter
+with name 'client_id' cannot be resolved
+```
+
+`export const dynamic = "force-dynamic"` prevents build-time pre-rendering — pages become SSR (rendered per request), so Databricks is never queried during `npm run build`.
+
+**Important:** `force-dynamic` prevents build failures but does NOT fix the runtime error. Dashboard pages will return 500 at runtime until the Databricks migration is run.
+
+---
+
+### Build Result
+
+```
+✓ Compiled successfully
+✓ Generating static pages (29/29)
+TypeScript: 0 errors
+```
+
+No regressions. Mock path unaffected. `getFinanceSnapshot()` unchanged.
+
+---
+
+### Commit Status
+
+**Not committed.** User instruction: "Do not commit yet."
+
+---
+
+### Required User Action Before Dashboard Pages Work at Runtime
+
+Run the following migration scripts against the Databricks `nexora.finance` catalog:
+
+1. `migrations/001-add-client-id.sql` — add `client_id` column to 5 tables
+2. `migrations/002-backfill-client-id.sql` — backfill `client_id = 'demo-client'` for all existing rows
+
+These are required for both the dashboard page SSR queries and the `buildSnapshotFromDB()` agent path to succeed against live Databricks.
+
+---
+
+### Next Session Priorities
+
+1. **Commit the 10 build-fix files** — these are uncommitted; `npm run build` passes cleanly
+2. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog
+3. **`git push origin main`** — deploy all unpushed commits (Sessions H–N + Phase 1 + build fix) to Vercel
+4. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
+5. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
+6. **Sprint 2 Phase 2** — connect dashboard server components to DB queries

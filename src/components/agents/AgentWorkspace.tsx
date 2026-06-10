@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { AgentId } from "@/types/finance";
-import { getAgentResponse, type ConversationTurn, type AgentResponseWithRoute } from "@/agents/mockResponses";
+import type { ConversationTurn, AgentResponseWithRoute } from "@/agents/mockResponses";
 import { getAgent } from "@/agents/registry";
 import { useConversation, type ChatMessage } from "@/hooks/useConversation";
 import ContextPanel from "./ContextPanel";
@@ -358,9 +358,15 @@ export default function AgentWorkspace({ agentId, initialQuestion }: AgentWorksp
       response = await res.json() as AgentResponseWithRoute;
 
     } catch (err) {
-      console.error("[AgentWorkspace] API call failed, using local mock:", err);
-      // Last-resort client-side fallback (should not normally be reached)
-      response = getAgentResponse(agentId, text, updatedHistory);
+      console.error("[AgentWorkspace] API call failed:", err);
+      setLoading(false);
+      setMessages(prev => [...prev, {
+        role: "agent" as const,
+        content: "Unable to reach the server. Please try again in a moment.",
+        timestamp: new Date(),
+      }]);
+      setTimeout(() => textareaRef.current?.focus(), 100);
+      return;
     }
 
     setLoading(false);

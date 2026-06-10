@@ -10,5 +10,5 @@ export interface AgentDefinition {
   color: string;       // Tailwind color key
   capabilities: string[];
   suggestedQuestions: string[];
-  respond: (question: string, history?: ConversationTurn[]) => AgentResponseWithRoute;
+  respond?: (question: string, history?: ConversationTurn[]) => AgentResponseWithRoute;
 }

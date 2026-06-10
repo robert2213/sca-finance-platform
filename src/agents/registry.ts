@@ -1,9 +1,4 @@
 import type { AgentDefinition } from "./types";
-import {
-  cfoRespond, fpaRespond, procurementRespond,
-  externalLaborRespond, headcountRespond, cioRespond,
-  financeBpRespond, validationRespond,
-} from "./mockResponses";
 
 export const agentRegistry: AgentDefinition[] = [
   {
@@ -20,7 +15,6 @@ export const agentRegistry: AgentDefinition[] = [
       "How do we explain the budget variance to the board?",
       "Where are our biggest cost optimization opportunities for H2?",
     ],
-    respond: cfoRespond,
   },
   {
     id: "fpa",
@@ -36,7 +30,6 @@ export const agentRegistry: AgentDefinition[] = [
       "How is our full-year forecast tracking vs. the approved plan?",
       "Walk me through the month-over-month spend trend Jan–May",
     ],
-    respond: fpaRespond,
   },
   {
     id: "procurement",
@@ -52,7 +45,6 @@ export const agentRegistry: AgentDefinition[] = [
       "Which vendors should we prioritize for renewal negotiations?",
       "What is our total committed vendor spend for the year?",
     ],
-    respond: procurementRespond,
   },
   {
     id: "external-labor",
@@ -68,7 +60,6 @@ export const agentRegistry: AgentDefinition[] = [
       "Which contractor engagements are ending in the next 60 days?",
       "How much of our external labor over-spend can be recovered?",
     ],
-    respond: externalLaborRespond,
   },
   {
     id: "headcount",
@@ -84,7 +75,6 @@ export const agentRegistry: AgentDefinition[] = [
       "Which business units have the largest HC gaps?",
       "How much salary budget are open reqs generating in savings?",
     ],
-    respond: headcountRespond,
   },
   {
     id: "cio",
@@ -100,7 +90,6 @@ export const agentRegistry: AgentDefinition[] = [
       "How do I explain the IT budget variance to the CEO?",
       "What is the full IT investment story for FY2026?",
     ],
-    respond: cioRespond,
   },
   {
     id: "finance-bp",
@@ -116,7 +105,6 @@ export const agentRegistry: AgentDefinition[] = [
       "What does finance need from me to close the month?",
       "How does my BU compare to plan for the year?",
     ],
-    respond: financeBpRespond,
   },
   {
     id: "validation",
@@ -132,7 +120,6 @@ export const agentRegistry: AgentDefinition[] = [
       "How do I fix the missing cost center IDs in my GL export?",
       "What percentage of my rows passed validation?",
     ],
-    respond: validationRespond,
   },
 ];
 

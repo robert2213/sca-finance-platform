@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import PageWrapper from "@/components/layout/PageWrapper";
 import KPICard from "@/components/dashboard/KPICard";

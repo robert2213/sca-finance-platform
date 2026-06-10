@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import PageWrapper from "@/components/layout/PageWrapper";
 import AgentWorkspaceCTA from "@/components/agents/AgentWorkspaceCTA";
 import KPICard from "@/components/dashboard/KPICard";
