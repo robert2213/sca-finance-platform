@@ -14,7 +14,7 @@
  * a deferred sprint item).
  */
 
-import { getYTDSummary, getByCategory } from "@/lib/queries/actuals";
+import { getYTDSummary, getByCategory, YTD_CUTOFF } from "@/lib/queries/actuals";
 import { getHCSummary } from "@/lib/queries/headcount";
 import { getContractors } from "@/lib/queries/contractors";
 import { generateRiskFlagsAsync } from "@/lib/riskEngine";
@@ -65,13 +65,14 @@ export interface KPIBundle {
  * treat 0/0 as "data not available" and render accordingly.
  */
 export async function getKPIBundle(
-  clientId: string = "demo-client"
+  clientId: string = "demo-client",
+  period: string = YTD_CUTOFF
 ): Promise<KPIBundle> {
   const [ytd, hc, contractors, categories, risks] = await Promise.all([
-    getYTDSummary(clientId),
+    getYTDSummary(clientId, period),
     getHCSummary(clientId),
     getContractors(clientId),
-    getByCategory(undefined, clientId),
+    getByCategory(period, clientId),
     generateRiskFlagsAsync(clientId),
   ]);
 

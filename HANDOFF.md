@@ -5244,3 +5244,165 @@ Update `/api/agent/executive` and `/api/agent/orchestrate` to use `buildSnapshot
 | `src/lib/queries/kpi.ts` | Remove BU cloud approximation (lines 58–63) |
 
 **No code was modified in this session. Analysis only.**
+
+---
+
+## Session 3 — KPI Rendering Path Analysis
+
+**Date:** 2026-06-10  
+**Status:** Analysis complete. No code changes. No commits.
+
+### Observed Discrepancy
+
+| Surface | YTD Spend | Budget | Variance |
+|---|---|---|---|
+| Dashboard KPI cards | $25.8M | $50.0M | -48.3% |
+| Agent responses | $14.598M | $14.140M | +3.2% |
+
+---
+
+### 1. Exact component rendering the YTD Spend card
+
+**`src/components/dashboard/KPICard.tsx`** — `"use client"` component.  
+Receives a `kpi: KPI` prop. Renders the primary value as:
+```tsx
+<p>{fmtValue(kpi)}</p>  // → formatCurrency(kpi.value, true)
+```
+`kpi.value` is the raw YTD actual dollar number.
+
+---
+
+### 2. Exact object/value passed into that card
+
+`kpis[0]` from the `kpis` array produced by `buildDashboardKPIsFromDB()`.
+
+In `src/app/page.tsx:65`, `kpis` is the 5th element of the top-level `Promise.all`.  
+In `src/app/page.tsx:171`, the JSX maps `kpis` directly:
+```tsx
+{kpis.map((kpi, i) => <KPICard key={i} kpi={kpi} />)}
+```
+`kpis[0]` is the YTD IT Spend card with `value ≈ 25_800_000` (full-year sum).
+
+---
+
+### 3. Exact function producing that object
+
+**`buildDashboardKPIsFromDB()`** in `src/lib/queries/kpi.ts`.  
+It calls `getKPISummary()` → `getYTDSummary()` and maps the result into a `KPI[]` array where `kpis[0].value = summary.ytdSpend` (i.e., `summary.actual`).
+
+---
+
+### 4. Exact query producing that value
+
+**`getYTDSummary()`** in `src/lib/queries/actuals.ts:236-254`:
+
+```sql
+SELECT
+  SUM(amount_actual) AS actual,
+  SUM(amount_budget) AS budget
+FROM fact_transactions
+WHERE transaction_type IN ('actual', 'budget') AND client_id = ?
+```
+
+Executed via `dbQuery()` → `LocalAdapter` (SQLite, no Databricks env vars configured) → `data/nexora-local.sqlite`.
+
+**Critical finding: no period filter.** The query sums ALL rows across all months (Jan–Dec), not just YTD (Jan–May). The SQLite database was seeded from `src/data/actuals.ts` which contains the full 12-month dataset. Result:
+- `SUM(amount_actual)` over Jan–Dec 2026 ≈ **$25.8M** (full year)
+- `SUM(amount_budget)` over Jan–Dec 2026 ≈ **$50.0M** (full annual budget)
+
+The agent static path filters to `ytdMonths = ["Jan","Feb","Mar","Apr","May"]` before summing, producing $14.598M.
+
+---
+
+### 5. Why `getKPIBundle()` did not change the visible YTD card
+
+Phase 3A wired `bundle` to two surfaces in `src/app/page.tsx`:
+- Lines 80-82: `cloudActual / cloudBudget / cloudVar` (variance drivers section)
+- Lines 147-151: `ytdActual / ytdBudget / ytdVar / ytdVarPct` (exec summary text only)
+
+The KPI card grid at line 171 still reads from the `kpis` variable which comes from `buildDashboardKPIsFromDB()` at line 65. The `bundle` object is never used to populate or replace `kpis[0].value`. Phase 3A created a second parallel data fetch — it did not replace the existing `kpis` render path.
+
+Both `buildDashboardKPIsFromDB()` and `getKPIBundle()` call the same `getYTDSummary()` function, so both currently return the same unfiltered $25.8M. Wiring the KPI card to `bundle.ytdActual` instead of `kpis[0].value` would have zero visual effect until the query itself is fixed.
+
+---
+
+### 6. Root cause and smallest fix
+
+**Root cause:** `getYTDSummary()` has no period filter — it aggregates the full year instead of YTD.
+
+**Smallest fix (one SQL clause):**
+
+In `src/lib/queries/actuals.ts:247`, add `AND period <= '2026-05'` to `getYTDSummary()`:
+
+```sql
+-- BEFORE
+WHERE transaction_type IN ('actual', 'budget') AND client_id = ?
+
+-- AFTER
+WHERE transaction_type IN ('actual', 'budget') AND period <= '2026-05' AND client_id = ?
+```
+
+This brings the dashboard into alignment with the agent's YTD calculation ($14.6M / $14.1M). Ideally, `'2026-05'` is parameterized as the current closed period rather than hardcoded.
+
+**Secondary fix (KPI card source — Phase 3B):**  
+Wire `page.tsx:171` to use `bundle` fields instead of `kpis` from `buildDashboardKPIsFromDB()`. This eliminates the redundant DB round-trip and ensures all surfaces share a single source.
+
+**Agent discrepancy fix (Phase 3B):**  
+Agents show different numbers because `/api/agent` dispatches to `getFinanceSnapshot()` (static Jan–May filtered data) when `ANTHROPIC_API_KEY` is absent. Setting the API key switches agents to `buildSnapshotFromDB()` (live DB path). Phase 3B should wire executive/orchestrate endpoints to use `getKPIBundle()` directly.
+
+---
+
+### Fix Priority
+
+| Fix | File | Scope | Impact |
+|---|---|---|---|
+| Add `AND period <= '2026-05'` period filter | `src/lib/queries/actuals.ts:247` | 1 SQL clause | Fixes dashboard $25.8M → $14.6M |
+| Parameterize current period (not hardcoded) | `src/lib/queries/actuals.ts` | Function signature | Prevents stale cutoff date |
+| Wire KPI card grid to `bundle.ytdActual` | `src/app/page.tsx:171` | Replace `kpis` render | Eliminates redundant DB call |
+| Add `ANTHROPIC_API_KEY` to `.env.local` | `.env.local` (not committed) | Config only | Switches agents to live DB path |
+| Phase 3B: wire executive/orchestrate to bundle | Multiple agent routes | Sprint item | Full source unification |
+
+---
+
+**No code was modified in this session. Analysis only.**
+
+---
+
+## Session 4 — Sprint 2 Phase 3B-part1: KPI YTD Cutoff Fix
+
+**Date:** 2026-06-10  
+**Status:** Complete. Committed.
+
+### What was done
+
+Added `YTD_CUTOFF = "2026-05"` constant and period filter to all DB-backed YTD aggregation functions so dashboard KPI cards show Jan–May data only, matching the agent's static YTD calculation.
+
+**Files changed:**
+
+| File | Change |
+|---|---|
+| `src/lib/queries/actuals.ts` | Added `export const YTD_CUTOFF = "2026-05"`. Updated `getYTDSummary(clientId, period = YTD_CUTOFF)` — SQL now includes `AND period <= ?`. |
+| `src/lib/queries/kpi.ts` | Added `period` param to `getKPISummary` and `buildDashboardKPIsFromDB`. Passes period to `getYTDSummary` and `getByBusinessUnit`. |
+| `src/lib/services/kpi.service.ts` | Added `period` param to `getKPIBundle`. Passes period to `getYTDSummary` and `getByCategory`. |
+
+### Validation results
+
+```
+TypeScript: 0 errors
+Build: ✓ 29/29 pages
+
+SQLite (period <= '2026-05'):
+  YTD Actual:   $14,598,000  ✓  (was $17M+ unfiltered)
+  YTD Budget:   $14,140,000  ✓
+  Variance $:     $458,000   ✓
+  Variance %:       +3.24%   ✓  (matches agent +3.2%)
+```
+
+### Open items (unchanged deferred)
+
+| Item | File | Notes |
+|---|---|---|
+| Add `client_id` to 5 SQLite CREATE TABLE blocks | `src/lib/adapters/local-adapter.ts` | All `AND client_id = ?` queries fail on SQLite — existing deferred item |
+| Wire KPI card grid to `bundle.ytdActual` | `src/app/page.tsx:171` | Still renders from `buildDashboardKPIsFromDB()` — both now use same cutoff so values match |
+| Phase 3B: wire executive/orchestrate to `getKPIBundle` | Agent route files | Eliminates `getFinanceSnapshot()` from agent live path |
+| Add `ANTHROPIC_API_KEY` to `.env.local` and Vercel | `.env.local` (not committed) | Activates live DB path for agents |

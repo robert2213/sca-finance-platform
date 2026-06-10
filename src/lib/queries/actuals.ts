@@ -232,8 +232,14 @@ export async function getActualsByPeriod(
   });
 }
 
-/** YTD totals — single aggregates. */
-export async function getYTDSummary(clientId: string = "demo-client"): Promise<{
+/** Current closed reporting period — all YTD queries default to this cutoff. */
+export const YTD_CUTOFF = "2026-05";
+
+/** YTD totals — single aggregates, filtered to periods up to and including `period`. */
+export async function getYTDSummary(
+  clientId: string = "demo-client",
+  period: string = YTD_CUTOFF
+): Promise<{
   actual: number;
   budget: number;
   variance: number;
@@ -244,9 +250,9 @@ export async function getYTDSummary(clientId: string = "demo-client"): Promise<{
       SUM(amount_actual) AS actual,
       SUM(amount_budget) AS budget
     FROM fact_transactions
-    WHERE transaction_type IN ('actual', 'budget') AND client_id = ?
+    WHERE transaction_type IN ('actual', 'budget') AND period <= ? AND client_id = ?
   `;
-  const result = await dbQuery<{ actual: number; budget: number }>(sql, [clientId]);
+  const result = await dbQuery<{ actual: number; budget: number }>(sql, [period, clientId]);
   const actual   = Number(result.rows[0]?.actual) || 0;
   const budget   = Number(result.rows[0]?.budget) || 0;
   const variance = actual - budget;
