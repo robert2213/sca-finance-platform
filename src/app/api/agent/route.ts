@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
-import { getFinanceSnapshot } from "@/agents/dataContext";
+import { buildSnapshotFromDB } from "@/agents/dataContext";
+import defaultConfig from "@/config/client.config";
 import { buildSystemPrompt, classifyIntent, extractTemporalIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 import {
@@ -170,7 +171,9 @@ async function callClaude(
   }
 
   // ── Layer 2: System prompt construction ───────────────────────────────────
-  const snapshot     = getFinanceSnapshot();
+  // Sprint 2 Phase 1: use DB-backed snapshot for live Claude path.
+  // clientId sourced from defaultConfig until Sprint 3 Clerk auth lands.
+  const snapshot     = await buildSnapshotFromDB(defaultConfig.clientId);
   const systemPrompt = buildSystemPrompt(agentId, snapshot, question);
 
   pipelineLog("SYSTEM_PROMPT_BUILT", {

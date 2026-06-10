@@ -19,13 +19,13 @@ export interface KPISummary {
 }
 
 /** Aggregate KPI summary across all data domains. */
-export async function getKPISummary(): Promise<KPISummary> {
+export async function getKPISummary(clientId: string = "demo-client"): Promise<KPISummary> {
   const [ytd, contractors, overBudget, hcSummary, vendors] = await Promise.all([
-    getYTDSummary(),
-    getContractors(),
-    getOverBudgetContractors(),
-    getHCSummary(),
-    getVendors(),
+    getYTDSummary(clientId),
+    getContractors(clientId),
+    getOverBudgetContractors(clientId),
+    getHCSummary(clientId),
+    getVendors(clientId),
   ]);
 
   const contractorYTDSpend = contractors.reduce((s, c) => s + c.ytdSpend, 0);
@@ -49,10 +49,10 @@ export async function getKPISummary(): Promise<KPISummary> {
 }
 
 /** Build typed KPI cards for the main dashboard (mirrors buildDashboardKPIs shape). */
-export async function buildDashboardKPIsFromDB(): Promise<KPI[]> {
+export async function buildDashboardKPIsFromDB(clientId: string = "demo-client"): Promise<KPI[]> {
   const [summary, buTotals] = await Promise.all([
-    getKPISummary(),
-    getByBusinessUnit(),
+    getKPISummary(clientId),
+    getByBusinessUnit(undefined, clientId),
   ]);
 
   const cloudActual = buTotals

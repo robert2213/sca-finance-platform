@@ -33,12 +33,13 @@ export interface HCByBU {
   salaryBudget: number;
 }
 
-export async function getHeadcount(): Promise<HeadcountRow[]> {
+export async function getHeadcount(clientId: string = "demo-client"): Promise<HeadcountRow[]> {
   const sql = `
     SELECT
       position_id, title, business_unit, level, status,
       location, open_date, fill_date, annual_salary, is_backfill
     FROM dim_headcount
+    WHERE client_id = ?
     ORDER BY business_unit, status, title
   `;
   const result = await dbQuery<{
@@ -52,7 +53,7 @@ export async function getHeadcount(): Promise<HeadcountRow[]> {
     fill_date: string | null;
     annual_salary: number;
     is_backfill: number | boolean;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => ({
     id:           r.position_id,
@@ -68,7 +69,7 @@ export async function getHeadcount(): Promise<HeadcountRow[]> {
   }));
 }
 
-export async function getHCSummary(): Promise<HCSummary> {
+export async function getHCSummary(clientId: string = "demo-client"): Promise<HCSummary> {
   const sql = `
     SELECT
       COUNT(*) AS total,
@@ -78,6 +79,7 @@ export async function getHCSummary(): Promise<HCSummary> {
       SUM(CASE WHEN status = 'On Leave'       THEN 1 ELSE 0 END) AS on_leave,
       SUM(annual_salary) AS total_salary
     FROM dim_headcount
+    WHERE client_id = ?
   `;
   const result = await dbQuery<{
     total: number;
@@ -86,7 +88,7 @@ export async function getHCSummary(): Promise<HCSummary> {
     pending_offer: number;
     on_leave: number;
     total_salary: number;
-  }>(sql);
+  }>(sql, [clientId]);
 
   const r = result.rows[0] ?? { total: 0, filled: 0, open: 0, pending_offer: 0, on_leave: 0, total_salary: 0 };
   const total = Number(r.total) || 0;
@@ -102,13 +104,13 @@ export async function getHCSummary(): Promise<HCSummary> {
   };
 }
 
-export async function getOpenReqs(): Promise<HeadcountRow[]> {
+export async function getOpenReqs(clientId: string = "demo-client"): Promise<HeadcountRow[]> {
   const sql = `
     SELECT
       position_id, title, business_unit, level, status,
       location, open_date, fill_date, annual_salary, is_backfill
     FROM dim_headcount
-    WHERE status IN ('Open', 'Pending Offer')
+    WHERE status IN ('Open', 'Pending Offer') AND client_id = ?
     ORDER BY business_unit, title
   `;
   const result = await dbQuery<{
@@ -122,7 +124,7 @@ export async function getOpenReqs(): Promise<HeadcountRow[]> {
     fill_date: string | null;
     annual_salary: number;
     is_backfill: number | boolean;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => ({
     id:           r.position_id,
@@ -138,7 +140,7 @@ export async function getOpenReqs(): Promise<HeadcountRow[]> {
   }));
 }
 
-export async function getHCByBusinessUnit(): Promise<HCByBU[]> {
+export async function getHCByBusinessUnit(clientId: string = "demo-client"): Promise<HCByBU[]> {
   const sql = `
     SELECT
       business_unit,
@@ -147,6 +149,7 @@ export async function getHCByBusinessUnit(): Promise<HCByBU[]> {
       SUM(CASE WHEN status = 'Open'   THEN 1 ELSE 0 END) AS open,
       SUM(annual_salary) AS total_salary
     FROM dim_headcount
+    WHERE client_id = ?
     GROUP BY business_unit
     ORDER BY business_unit
   `;
@@ -156,7 +159,7 @@ export async function getHCByBusinessUnit(): Promise<HCByBU[]> {
     filled: number;
     open: number;
     total_salary: number;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => {
     const total  = Number(r.total) || 0;
@@ -172,14 +175,14 @@ export async function getHCByBusinessUnit(): Promise<HCByBU[]> {
   });
 }
 
-export async function getHeadcountCosts(period: string) {
+export async function getHeadcountCosts(period: string, clientId: string = "demo-client") {
   const sql = `
     SELECT
       business_unit,
       SUM(amount_actual) AS labor_actual,
       SUM(amount_budget) AS labor_budget
     FROM fact_transactions
-    WHERE category = 'Labor' AND period <= ?
+    WHERE category = 'Labor' AND period <= ? AND client_id = ?
     GROUP BY business_unit
     ORDER BY labor_actual DESC
   `;
@@ -187,7 +190,7 @@ export async function getHeadcountCosts(period: string) {
     business_unit: string;
     labor_actual: number;
     labor_budget: number;
-  }>(sql, [period]);
+  }>(sql, [period, clientId]);
 
   return result.rows.map((r) => ({
     businessUnit: r.business_unit as BusinessUnit,

@@ -18,7 +18,7 @@ export interface ContractorRow {
   variance: number;
 }
 
-export async function getContractors(): Promise<ContractorRow[]> {
+export async function getContractors(clientId: string = "demo-client"): Promise<ContractorRow[]> {
   const sql = `
     SELECT
       contractor_id, contractor_name, role, vendor,
@@ -26,6 +26,7 @@ export async function getContractors(): Promise<ContractorRow[]> {
       business_unit, monthly_rate, ytd_spend, budget,
       start_date, end_date, status
     FROM dim_contractor
+    WHERE client_id = ?
     ORDER BY business_unit, contractor_name
   `;
   const result = await dbQuery<{
@@ -42,7 +43,7 @@ export async function getContractors(): Promise<ContractorRow[]> {
     start_date: string;
     end_date: string;
     status: string;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => {
     const ytdSpend = Number(r.ytd_spend) || 0;
@@ -66,12 +67,15 @@ export async function getContractors(): Promise<ContractorRow[]> {
   });
 }
 
-export async function getOverBudgetContractors(): Promise<ContractorRow[]> {
-  const all = await getContractors();
+export async function getOverBudgetContractors(clientId: string = "demo-client"): Promise<ContractorRow[]> {
+  const all = await getContractors(clientId);
   return all.filter((c) => c.ytdSpend > c.budget);
 }
 
-export async function getEndingSoonContractors(withinDays = 60): Promise<ContractorRow[]> {
+export async function getEndingSoonContractors(
+  withinDays = 60,
+  clientId: string = "demo-client"
+): Promise<ContractorRow[]> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + withinDays);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
@@ -83,7 +87,7 @@ export async function getEndingSoonContractors(withinDays = 60): Promise<Contrac
       business_unit, monthly_rate, ytd_spend, budget,
       start_date, end_date, status
     FROM dim_contractor
-    WHERE end_date <= ? AND status != 'On Hold'
+    WHERE end_date <= ? AND status != 'On Hold' AND client_id = ?
     ORDER BY end_date
   `;
   const result = await dbQuery<{
@@ -100,7 +104,7 @@ export async function getEndingSoonContractors(withinDays = 60): Promise<Contrac
     start_date: string;
     end_date: string;
     status: string;
-  }>(sql, [cutoffStr]);
+  }>(sql, [cutoffStr, clientId]);
 
   return result.rows.map((r) => {
     const ytdSpend = Number(r.ytd_spend) || 0;
@@ -124,7 +128,7 @@ export async function getEndingSoonContractors(withinDays = 60): Promise<Contrac
   });
 }
 
-export async function getContractorsByBU(): Promise<{
+export async function getContractorsByBU(clientId: string = "demo-client"): Promise<{
   bu: BusinessUnit;
   count: number;
   ytdSpend: number;
@@ -137,6 +141,7 @@ export async function getContractorsByBU(): Promise<{
       SUM(ytd_spend) AS ytd_spend,
       SUM(budget) AS budget
     FROM dim_contractor
+    WHERE client_id = ?
     GROUP BY business_unit
     ORDER BY ytd_spend DESC
   `;
@@ -145,7 +150,7 @@ export async function getContractorsByBU(): Promise<{
     cnt: number;
     ytd_spend: number;
     budget: number;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => ({
     bu:       r.business_unit as BusinessUnit,

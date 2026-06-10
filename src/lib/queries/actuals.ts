@@ -62,8 +62,13 @@ function toMonth(period: string): Month {
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 /** Monthly budget vs actual vs forecast totals (all periods, or filtered by year). */
-export async function getMonthlyTotals(year?: number): Promise<MonthlyTotal[]> {
-  const yearFilter = year ? `WHERE CAST(substr(period, 1, 4) AS INTEGER) = ${year}` : "";
+export async function getMonthlyTotals(
+  year?: number,
+  clientId: string = "demo-client"
+): Promise<MonthlyTotal[]> {
+  // Year filter uses a parameterized binding (not string interpolation) to avoid mixing
+  // literal injection with parameterized values in the WHERE clause.
+  const yearClause = year ? "AND CAST(substr(period, 1, 4) AS INTEGER) = ?" : "";
   const sql = `
     SELECT
       period,
@@ -72,18 +77,19 @@ export async function getMonthlyTotals(year?: number): Promise<MonthlyTotal[]> {
       SUM(amount_forecast) AS forecast
     FROM fact_transactions
     WHERE transaction_type IN ('actual', 'budget')
-    ${year ? `AND CAST(substr(period, 1, 4) AS INTEGER) = ${year}` : ""}
+    ${yearClause}
+    AND client_id = ?
     GROUP BY period
     ORDER BY period
   `;
-  void yearFilter;
+  const params: unknown[] = year ? [year, clientId] : [clientId];
 
   const result = await dbQuery<{
     period: string;
     actual: number;
     budget: number;
     forecast: number;
-  }>(sql);
+  }>(sql, params);
 
   return result.rows.map((r) => ({
     month: toMonth(r.period),
@@ -94,8 +100,12 @@ export async function getMonthlyTotals(year?: number): Promise<MonthlyTotal[]> {
 }
 
 /** YTD actuals by business unit with variance. */
-export async function getByBusinessUnit(period?: string): Promise<BUTotal[]> {
-  const filter = period ? `AND period <= '${period}'` : "";
+export async function getByBusinessUnit(
+  period?: string,
+  clientId: string = "demo-client"
+): Promise<BUTotal[]> {
+  // Period filter uses a parameterized binding to avoid string injection.
+  const periodClause = period ? "AND period <= ?" : "";
   const sql = `
     SELECT
       business_unit,
@@ -104,17 +114,19 @@ export async function getByBusinessUnit(period?: string): Promise<BUTotal[]> {
       SUM(amount_forecast) AS forecast
     FROM fact_transactions
     WHERE transaction_type IN ('actual', 'budget')
-    ${filter}
+    ${periodClause}
+    AND client_id = ?
     GROUP BY business_unit
     ORDER BY actual DESC
   `;
+  const params: unknown[] = period ? [period, clientId] : [clientId];
 
   const result = await dbQuery<{
     business_unit: string;
     actual: number;
     budget: number;
     forecast: number;
-  }>(sql);
+  }>(sql, params);
 
   return result.rows.map((r) => {
     const actual = Number(r.actual) || 0;
@@ -132,8 +144,11 @@ export async function getByBusinessUnit(period?: string): Promise<BUTotal[]> {
 }
 
 /** YTD actuals by cost category. */
-export async function getByCategory(period?: string): Promise<CategoryTotal[]> {
-  const filter = period ? `AND period <= '${period}'` : "";
+export async function getByCategory(
+  period?: string,
+  clientId: string = "demo-client"
+): Promise<CategoryTotal[]> {
+  const periodClause = period ? "AND period <= ?" : "";
   const sql = `
     SELECT
       category,
@@ -141,16 +156,18 @@ export async function getByCategory(period?: string): Promise<CategoryTotal[]> {
       SUM(amount_budget) AS budget
     FROM fact_transactions
     WHERE transaction_type IN ('actual', 'budget')
-    ${filter}
+    ${periodClause}
+    AND client_id = ?
     GROUP BY category
     ORDER BY actual DESC
   `;
+  const params: unknown[] = period ? [period, clientId] : [clientId];
 
   const result = await dbQuery<{
     category: string;
     actual: number;
     budget: number;
-  }>(sql);
+  }>(sql, params);
 
   return result.rows.map((r) => {
     const actual = Number(r.actual) || 0;
@@ -165,7 +182,10 @@ export async function getByCategory(period?: string): Promise<CategoryTotal[]> {
 }
 
 /** Cost center detail for a specific period (for the FP&A variance table). */
-export async function getActualsByPeriod(period: string): Promise<CostCenterDetail[]> {
+export async function getActualsByPeriod(
+  period: string,
+  clientId: string = "demo-client"
+): Promise<CostCenterDetail[]> {
   const sql = `
     SELECT
       cost_center_id,
@@ -177,7 +197,7 @@ export async function getActualsByPeriod(period: string): Promise<CostCenterDeta
       SUM(amount_budget)   AS budget,
       SUM(amount_forecast) AS forecast
     FROM fact_transactions
-    WHERE period = ? AND transaction_type IN ('actual', 'budget')
+    WHERE period = ? AND transaction_type IN ('actual', 'budget') AND client_id = ?
     GROUP BY cost_center_id, cost_center_name, business_unit, category, period
     ORDER BY cost_center_id
   `;
@@ -191,7 +211,7 @@ export async function getActualsByPeriod(period: string): Promise<CostCenterDeta
     actual: number;
     budget: number;
     forecast: number;
-  }>(sql, [period]);
+  }>(sql, [period, clientId]);
 
   return result.rows.map((r) => {
     const actual   = Number(r.actual) || 0;
@@ -213,7 +233,7 @@ export async function getActualsByPeriod(period: string): Promise<CostCenterDeta
 }
 
 /** YTD totals — single aggregates. */
-export async function getYTDSummary(): Promise<{
+export async function getYTDSummary(clientId: string = "demo-client"): Promise<{
   actual: number;
   budget: number;
   variance: number;
@@ -224,9 +244,9 @@ export async function getYTDSummary(): Promise<{
       SUM(amount_actual) AS actual,
       SUM(amount_budget) AS budget
     FROM fact_transactions
-    WHERE transaction_type IN ('actual', 'budget')
+    WHERE transaction_type IN ('actual', 'budget') AND client_id = ?
   `;
-  const result = await dbQuery<{ actual: number; budget: number }>(sql);
+  const result = await dbQuery<{ actual: number; budget: number }>(sql, [clientId]);
   const actual   = Number(result.rows[0]?.actual) || 0;
   const budget   = Number(result.rows[0]?.budget) || 0;
   const variance = actual - budget;
@@ -234,11 +254,14 @@ export async function getYTDSummary(): Promise<{
 }
 
 /** Budget for a specific period. */
-export async function getBudgetByPeriod(period: string) {
-  return getActualsByPeriod(period);
+export async function getBudgetByPeriod(period: string, clientId: string = "demo-client") {
+  return getActualsByPeriod(period, clientId);
 }
 
 /** Variance by category for a period. */
-export async function getVarianceByCategory(period: string): Promise<CategoryTotal[]> {
-  return getByCategory(period);
+export async function getVarianceByCategory(
+  period: string,
+  clientId: string = "demo-client"
+): Promise<CategoryTotal[]> {
+  return getByCategory(period, clientId);
 }

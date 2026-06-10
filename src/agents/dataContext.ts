@@ -191,3 +191,186 @@ export function getFinanceSnapshot(): FinanceSnapshot {
 
 // Clear cache (useful for testing or when data changes)
 export function clearSnapshotCache(): void { _cache = null; }
+
+// ─── DB-backed snapshot (Sprint 2 Phase 1) ────────────────────────────────────
+// Additive companion to getFinanceSnapshot(). Calls live DB queries and maps
+// the results to the same FinanceSnapshot shape so the agent pipeline is
+// unchanged. getFinanceSnapshot() / mock path are preserved and untouched.
+
+import {
+  getYTDSummary as dbGetYTDSummary,
+  getMonthlyTotals as dbGetMonthlyTotals,
+  getByBusinessUnit as dbGetByBU,
+} from "@/lib/queries/actuals";
+import { getVendors as dbGetVendors } from "@/lib/queries/vendors";
+import {
+  getHeadcount as dbGetHeadcount,
+  getHCSummary as dbGetHCSummary,
+  getOpenReqs as dbGetOpenReqs,
+  getHCByBusinessUnit as dbGetHCByBU,
+} from "@/lib/queries/headcount";
+import {
+  getContractors as dbGetContractors,
+  getContractorsByBU as dbGetContractorsByBU,
+} from "@/lib/queries/contractors";
+import { dbQuery } from "@/lib/databricks";
+
+/**
+ * Async DB-backed companion to getFinanceSnapshot().
+ *
+ * Calls all 5 query modules in parallel (Promise.all), maps DB row types to
+ * the FinanceSnapshot shape, and preserves the risk/action engines unchanged.
+ *
+ * Cloud spend is a proxy from fact_transactions WHERE category = 'Cloud'
+ * (provider-level breakdown is deferred until dim_cloud_provider is built).
+ *
+ * clientId defaults to "demo-client" until Sprint 3 Clerk auth lands and
+ * the session provides the real tenant ID.
+ */
+export async function buildSnapshotFromDB(
+  clientId: string = "demo-client"
+): Promise<FinanceSnapshot> {
+  const [
+    ytdSummary,
+    monthlyTotals,
+    buTotals,
+    vendorsData,
+    allHeadcount,
+    hcSummaryData,
+    openReqsData,
+    hcByBUData,
+    contractorsData,
+    contractorsByBUData,
+    cloudResult,
+  ] = await Promise.all([
+    dbGetYTDSummary(clientId),
+    dbGetMonthlyTotals(undefined, clientId),
+    dbGetByBU(undefined, clientId),
+    dbGetVendors(clientId),
+    dbGetHeadcount(clientId),
+    dbGetHCSummary(clientId),
+    dbGetOpenReqs(clientId),
+    dbGetHCByBU(clientId),
+    dbGetContractors(clientId),
+    dbGetContractorsByBU(clientId),
+    // Cloud proxy: fact_transactions WHERE category = 'Cloud'
+    // dim_cloud_provider / provider breakdown is a deferred sprint item.
+    dbQuery<{ actual: number; budget: number }>(
+      `SELECT SUM(amount_actual) AS actual, SUM(amount_budget) AS budget
+       FROM fact_transactions
+       WHERE category = 'Cloud' AND transaction_type IN ('actual', 'budget') AND client_id = ?`,
+      [clientId]
+    ),
+  ]);
+
+  // ── Overall YTD ─────────────────────────────────────────────────────────────
+  const ytdActual      = ytdSummary.actual;
+  const ytdBudget      = ytdSummary.budget;
+  const ytdVariance    = ytdSummary.variance;
+  const ytdVariancePct = ytdSummary.variancePct;
+
+  // ── Monthly trend ────────────────────────────────────────────────────────────
+  const numMonths    = Math.max(1, monthlyTotals.length);
+  const currentMonth = monthlyTotals[monthlyTotals.length - 1]
+    ?? { month: "Jan" as const, actual: 0, budget: 0, forecast: 0 };
+  const priorMonth   = monthlyTotals[monthlyTotals.length - 2]
+    ?? { month: "Jan" as const, actual: 0, budget: 0, forecast: 0 };
+  const momGrowthPct = priorMonth.actual > 0
+    ? (currentMonth.actual - priorMonth.actual) / priorMonth.actual
+    : 0;
+
+  const periodLabel = monthlyTotals.length > 0
+    ? `YTD ${currentMonth.month} ${new Date().getFullYear()}`
+    : "YTD";
+
+  // ── Full-year projections (run-rate + slight deceleration assumption) ────────
+  const fullYearBudget   = ytdBudget * (12 / numMonths);
+  const fullYearForecast = ytdActual  * (12 / numMonths) * 0.97;
+
+  // ── By business unit ─────────────────────────────────────────────────────────
+  const overBUs   = buTotals.filter(b => b.variance > 0).sort((a, b) => b.variance - a.variance);
+  const favBUs    = buTotals.filter(b => b.variance < 0).sort((a, b) => a.variance - b.variance);
+  const topOverBU = overBUs[0]
+    ? { bu: overBUs[0].bu, variance: overBUs[0].variance, variancePct: overBUs[0].variancePct }
+    : null;
+  const topFavBU  = favBUs[0]
+    ? { bu: favBUs[0].bu, variance: favBUs[0].variance, variancePct: favBUs[0].variancePct }
+    : null;
+
+  // ── Cloud (proxy from fact_transactions) ─────────────────────────────────────
+  const cloudYTD         = Number(cloudResult.rows[0]?.actual) || 0;
+  const cloudBudget      = Number(cloudResult.rows[0]?.budget) || 0;
+  const cloudVariance    = cloudYTD - cloudBudget;
+  const cloudVariancePct = cloudBudget > 0 ? cloudVariance / cloudBudget : 0;
+  // Provider breakdown deferred (no dim_cloud_provider table yet).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cloudByProvider  = [] as unknown as FinanceSnapshot["cloudByProvider"];
+  const cloudMoMGrowth   = 0; // requires cloud-by-month query — deferred to Phase 2
+
+  // ── External labor ────────────────────────────────────────────────────────────
+  const laborYTD    = contractorsData.reduce((s, c) => s + c.ytdSpend, 0);
+  const laborBudget = contractorsData.reduce((s, c) => s + c.budget, 0);
+  const laborVariance = laborYTD - laborBudget;
+
+  const overBudgetContractors = contractorsData.filter(c => c.ytdSpend > c.budget);
+  const totalExcessLabor      = overBudgetContractors.reduce((s, c) => s + Math.max(0, c.ytdSpend - c.budget), 0);
+
+  const now        = new Date();
+  const cutoff60   = new Date(now);
+  cutoff60.setDate(cutoff60.getDate() + 60);
+  const cutoff60Str = cutoff60.toISOString().slice(0, 10);
+  const endingSoonContractors = contractorsData.filter(
+    c => c.endDate && c.endDate <= cutoff60Str && c.status !== "On Hold"
+  );
+
+  // ── Vendors ──────────────────────────────────────────────────────────────────
+  const vendorYTDSpend    = vendorsData.reduce((s, v) => s + v.ytdSpend, 0);
+  const vendorCommitment  = vendorsData.reduce((s, v) => s + v.annualValue, 0);
+
+  const todayStr   = now.toISOString().slice(0, 10);
+  const in90Days   = new Date(now.getTime() + 90  * 86400000).toISOString().slice(0, 10);
+  const in180Days  = new Date(now.getTime() + 180 * 86400000).toISOString().slice(0, 10);
+
+  const expiringVendors90  = vendorsData.filter(v => v.contractEnd > todayStr && v.contractEnd <= in90Days);
+  const expiringVendors180 = vendorsData.filter(v => v.contractEnd > todayStr && v.contractEnd <= in180Days);
+  const highRiskVendors    = vendorsData.filter(v => v.riskLevel === "High");
+  const topVendors         = [...vendorsData].sort((a, b) => b.ytdSpend - a.ytdSpend).slice(0, 5);
+
+  // ── Headcount ────────────────────────────────────────────────────────────────
+  const fillRate             = hcSummaryData.fillRate;
+  const salaryBudget         = hcSummaryData.totalAnnualSalaryBudget;
+  const openReqSalaryAtRisk  = openReqsData.reduce((s, h) => s + h.annualSalary / 12 * 7, 0);
+
+  // ── Risk & actions (static engines preserved — Phase 1 scope) ────────────────
+  const risks   = generateRiskFlags();
+  const actions = generateRecommendedActions();
+
+  return {
+    ytdActual, ytdBudget, ytdVariance, ytdVariancePct,
+    fullYearForecast, fullYearBudget, periodLabel,
+    monthly:      monthlyTotals as unknown as FinanceSnapshot["monthly"],
+    currentMonth, priorMonth, momGrowthPct,
+    byBU:         buTotals as unknown as FinanceSnapshot["byBU"],
+    topOverBU, topFavBU,
+    cloudYTD, cloudBudget, cloudVariance, cloudVariancePct,
+    cloudByProvider, cloudMoMGrowth,
+    laborYTD, laborBudget, laborVariance,
+    overBudgetContractors: overBudgetContractors as unknown as FinanceSnapshot["overBudgetContractors"],
+    endingSoonContractors: endingSoonContractors as unknown as FinanceSnapshot["endingSoonContractors"],
+    laborByBU:    contractorsByBUData as unknown as FinanceSnapshot["laborByBU"],
+    totalExcessLabor,
+    vendorYTDSpend, vendorCommitment,
+    expiringVendors90:  expiringVendors90  as unknown as FinanceSnapshot["expiringVendors90"],
+    expiringVendors180: expiringVendors180 as unknown as FinanceSnapshot["expiringVendors180"],
+    highRiskVendors:    highRiskVendors    as unknown as FinanceSnapshot["highRiskVendors"],
+    topVendors:         topVendors         as unknown as FinanceSnapshot["topVendors"],
+    hcSummary:    hcSummaryData as unknown as FinanceSnapshot["hcSummary"],
+    fillRate, openReqs: openReqsData as unknown as FinanceSnapshot["openReqs"],
+    salaryBudget, openReqSalaryAtRisk,
+    hcByBU:       hcByBUData as unknown as FinanceSnapshot["hcByBU"],
+    headcount:    allHeadcount  as unknown as FinanceSnapshot["headcount"],
+    contractors:  contractorsData as unknown as FinanceSnapshot["contractors"],
+    risks, actions,
+    fmt: formatCurrency, pct: formatPercent, dt: formatDate, daysUntil,
+  };
+}

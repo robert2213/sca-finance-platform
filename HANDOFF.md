@@ -3063,3 +3063,533 @@ All 5 questions routed through the live `dispatchAgent()` call. Verified: no cap
 3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — live path activates; role engine responses will be validated against Claude output
 4. **Vendor variance mock template** — procurement mock content gap (open since Session D)
 5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
+
+---
+
+## Session Update — June 9, 2026 (Session O)
+
+### Housekeeping: Session N handoff notes written
+
+**No code changes.** Prior session context was compacted and this session resumed from summary.
+
+---
+
+### What Happened
+
+Session resumed from a context summary that ended mid-task after the Session N commit (`8a481b4`). The only work performed was:
+
+1. Read `HANDOFF.md` lines 1354–3065 to establish full current state (Sessions C through M documented)
+2. Verified `git log --oneline -5` — confirmed `8a481b4` is HEAD
+3. Appended Session N notes to `HANDOFF.md` documenting:
+   - Phase 1 role analysis engine (`role-analysis-engine.ts`, `role-perspectives.ts`)
+   - `buildDefaultAnswer.ts` replaced as thin wrapper
+   - 6 default handlers wired
+   - 2 bug fixes (period label, snapshot mutation)
+   - 5/5 smoke tests passed, financial values verified
+   - Commit `8a481b4`
+
+---
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `HANDOFF.md` | Session N notes appended (this session) |
+
+---
+
+### Next Session Priorities
+
+1. **`git push origin main`** — deploy `8a481b4` and all unpushed commits (Sessions H–N) to Vercel
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G; required for Claude + all guards to execute
+3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
+4. **Vendor variance mock template** — procurement mock content gap (open since Session D)
+5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
+
+---
+
+## Session Update — June 9, 2026 (Session P)
+
+### Objective: Architecture Review + Sprint 2 Data Connection Plan
+
+No code changes this session. Read-only audit followed by a detailed Sprint 2 implementation plan. HANDOFF.md updated at end of session.
+
+---
+
+### Part 1 — Architecture Review
+
+#### Current Architecture Map
+
+```
+Client Browser
+    │
+    ├── Next.js App Router (SSG/Server Components)
+    │       ├── /app/dashboard/*        — static pages
+    │       ├── /app/api/agent          — live Claude pipeline
+    │       ├── /app/api/ingest         — CSV/Excel upload
+    │       ├── /app/api/db/*           — DB init + raw query (⚠ unprotected)
+    │       └── /app/api/health         — status
+    │
+    ├── Agent Engine (src/agents/)
+    │       ├── agentEngine.ts          — dispatch + temporal guards
+    │       ├── dataContext.ts          — FinanceSnapshot builder (static)
+    │       └── responses/*.ts          — 6 response libraries + buildDefaultAnswer
+    │
+    ├── AI Layer (src/lib/ai/)
+    │       ├── system-prompt.builder.ts
+    │       ├── role-analysis-engine.ts — new (Session N)
+    │       ├── response-mode-router.ts
+    │       ├── intent-classifier.ts
+    │       └── response.parser.ts
+    │
+    ├── Data Layer — SPLIT (the core architectural gap)
+    │       ├── src/data/*.ts           — static TypeScript arrays (used everywhere)
+    │       └── src/lib/queries/*.ts    — DB-backed async functions (never called)
+    │
+    ├── DB Adapter (src/lib/databricks.ts)
+    │       ├── DatabricksAdapter       — Databricks Delta Lake (7 tables)
+    │       └── LocalAdapter            — SQLite via sql.js (local dev)
+    │
+    └── Config / Auth
+            ├── src/config/client.config.ts   — clientId hardcoded "demo-client"
+            ├── src/lib/auth/roles.ts         — 4 roles, 7 permissions (never enforced)
+            └── src/middleware.ts             — pass-through (Clerk removed)
+```
+
+---
+
+#### What Is Production-Ready
+
+| Component | Status | Notes |
+|---|---|---|
+| Next.js App Router + API routes | ✅ | Correct SSR/SSG configuration |
+| Claude pipeline (`/api/agent`) | ✅ | Full 6-stage pipeline, retry logic, governance fields |
+| Role-analysis engine | ✅ | 8 detectors, 6 voices, 0 TS errors, 5/5 smoke tests |
+| Response mode router | ✅ | 10 modes, 5 temporal guards, anti-bleed rules enforced |
+| Intent classifier | ✅ | 9 intents with confidence scoring |
+| Temporal intent extractor | ✅ | Month/quarter/H1/H2/FY/YTD/range |
+| System prompt builder | ✅ | Question-type-calibrated, 9 RESPONSE RULES, voice rules |
+| DB adapter pattern | ✅ | Databricks or SQLite selected by env vars |
+| DB schema (DDL) | ✅ | 7 tables, `client_id` in 5, `fact_transactions` partitioned |
+| Ingest route | ✅ | CSV/Excel → parse → map → clean → write (50MB limit) |
+| `src/lib/queries/*.ts` | ✅ | 5 async query modules, structurally correct, ready to call |
+| Type definitions | ✅ | `AgentResponse`, `FinanceSnapshot`, all governance fields |
+
+---
+
+#### What Is Demo-Only / Mock-Only
+
+| Component | Gap | Impact |
+|---|---|---|
+| `src/data/*.ts` static arrays | Hard-coded values, not from DB | Every dashboard KPI, every agent snapshot |
+| `getFinanceSnapshot()` | Synchronous, module-level singleton, never queries DB | All 8 agents, entire `/api/agent` live path |
+| `clientId = "demo-client"` | Hardcoded in ingest route and `client.config.ts` | Ingest writes to wrong tenant; multi-tenancy non-functional |
+| `src/middleware.ts` | Pass-through — no auth enforcement | All routes are public |
+| `src/lib/auth/roles.ts` | Roles defined but never checked | No access control |
+| System connectors (`src/lib/ingestion/connectors/`) | All 7 return empty arrays | QuickBooks, NetSuite, Workday, VMS, Coupa, Adaptive — all stubs |
+| `ANTHROPIC_API_KEY` | Not set in `.env.local` or Vercel | Every user session runs mock path, not Claude |
+| `AgentChatPanel.tsx` | Not wired to `/api/agent` (open since Session G) | Guards and Claude never execute for users |
+
+---
+
+#### What Must Exist for a Real Client Implementation
+
+1. **Auth** — Clerk re-integration (Next.js 15 upgrade or Clerk v4/v5) or equivalent. Middleware must enforce authentication before any route. `client_id` must come from the authenticated session, not `defaultConfig`.
+2. **DB data** — Databricks env vars configured; `GET /api/db/init` run to create tables; migration scripts `001-add-client-id.sql` and `002-backfill-client-id.sql` executed.
+3. **`buildSnapshotFromDB(clientId)`** — async DB-backed companion to `getFinanceSnapshot()`. This is the single change that connects the agent pipeline to real data.
+4. **`client_id` in all queries** — `AND client_id = ?` parameterized in all 5 query files.
+5. **`ANTHROPIC_API_KEY`** — configured in Vercel env vars; `AgentChatPanel.tsx` wired to `/api/agent`.
+6. **`/api/db/query` protected** — currently internet-accessible raw SQL console; must be removed or gated behind admin auth before any production deployment.
+7. **Ingest auth** — `clientId` in `/api/ingest/route.ts` must come from session, not `defaultConfig.clientId`.
+
+---
+
+#### Recommended Platform Architecture
+
+```
+Authenticated Session (Clerk / auth provider)
+    │ user role + client_id
+    ▼
+/api/agent  ──▶  dispatchAgent() ──▶ temporal/mode guards
+                      │
+                      ▼
+               callClaude(agentId, question, history)
+                      │
+                      ├── buildSnapshotFromDB(clientId)  ◀── src/lib/queries/*
+                      │         │                                    │
+                      │         ▼                                    ▼
+                      │   FinanceSnapshot              Databricks / SQLite
+                      │
+                      ├── buildSystemPrompt(agentId, snapshot, question)
+                      └── Claude API → parseAgentResponse()
+
+/api/ingest ──▶  auth middleware ──▶ clientId from session
+                      │
+                      ▼
+               parse → map → validate → DB write (client-scoped)
+```
+
+---
+
+#### Data Flow: Upload → DB → Dashboard → Agents
+
+```
+Client Upload (CSV/Excel)
+    │ /api/ingest
+    ▼
+FieldMapper → DataCleaner → DB write
+    │               client_id from session (post-Sprint 1)
+    ▼
+Databricks Delta Lake
+    ├── fact_transactions (partitioned by period)
+    ├── dim_vendor
+    ├── dim_cost_center
+    ├── dim_contractor
+    ├── dim_headcount
+    ├── dim_period
+    └── data_quality_log
+
+    │
+    ▼ [Sprint 2: connect these]
+src/lib/queries/*.ts (async, client-scoped)
+    │
+    ▼
+buildSnapshotFromDB(clientId) → FinanceSnapshot
+    │
+    ├── /api/agent → Claude pipeline → AgentResponse
+    └── Dashboard server components → KPIs / charts / tables
+```
+
+Current state: the DB write half works. The read half (`queries/*.ts → snapshot`) is built but never called.
+
+---
+
+#### Security / Auth Gaps
+
+| Gap | Severity | Location |
+|---|---|---|
+| `/api/db/query` — raw SQL endpoint, no auth | **CRITICAL** | `src/app/api/db/query/route.ts` |
+| Middleware is a pass-through — all routes public | **HIGH** | `src/middleware.ts` |
+| `clientId` hardcoded to `"demo-client"` in ingest | **HIGH** | `src/app/api/ingest/route.ts` |
+| Role permissions defined but never enforced | **HIGH** | `src/lib/auth/roles.ts` |
+| `ANTHROPIC_API_KEY` not set — live path never activates | **MEDIUM** | `.env.local` / Vercel env |
+| `src/middleware.ts` untracked — must not be committed as-is | **LOW** | git status |
+
+---
+
+#### Implementation Roadmap
+
+| Priority | Sprint | Action |
+|---|---|---|
+| 1 | Now | Add `ANTHROPIC_API_KEY` to `.env.local` + Vercel — no code, highest impact |
+| 2 | Now | Wire `AgentChatPanel.tsx` to `/api/agent` — open since Session G |
+| 3 | Now | `git push origin main` — deploy Sessions H–N commits |
+| 4 | **Sprint 2** | Build `buildSnapshotFromDB(clientId)` in `dataContext.ts`, add `client_id` to all queries |
+| 5 | **Sprint 2** | Connect dashboard pages to DB queries (Phase 2 of Sprint 2) |
+| 6 | Sprint 3 | Auth — Clerk re-integration or equivalent; enforce `client_id` from session |
+| 7 | Sprint 3 | Remove or gate `/api/db/query` behind admin auth |
+| 8 | Sprint 4 | Implement at least 1–2 source connectors (QuickBooks or NetSuite recommended first) |
+| 9 | Sprint 4 | Vendor variance mock template (procurement gap, open since Session D) |
+
+---
+
+### Part 2 — Sprint 2: Data Connection Implementation Plan
+
+---
+
+#### 1. Current Data Flow (Two Disconnected Pipelines)
+
+**Pipeline A — Static (used everywhere today):**
+```
+src/data/*.ts (TypeScript arrays)
+    └── getFinanceSnapshot() in dataContext.ts
+            └── dispatchAgent() / callClaude()
+            └── Dashboard server components (KPIs, charts, tables)
+```
+
+**Pipeline B — DB-backed (built, never called):**
+```
+Databricks / SQLite
+    └── src/lib/queries/*.ts (5 async modules)
+            └── [nothing calls these]
+```
+
+The ingest route writes to the DB. Nothing reads from it. Sprint 2 bridges Pipeline B to the agents and dashboard.
+
+---
+
+#### 2. Files Requiring Changes
+
+**Phase 1 — Agent Path (~1.5 days)**
+
+| File | Change |
+|---|---|
+| `src/lib/queries/actuals.ts` | Add `clientId: string` param to all 5 functions; parameterize year filter in `getMonthlyTotals` |
+| `src/lib/queries/vendors.ts` | Add `clientId: string` param to `getVendors()`, `getVendorSpend()` |
+| `src/lib/queries/headcount.ts` | Add `clientId: string` param to all 5 functions |
+| `src/lib/queries/contractors.ts` | Add `clientId: string` param to all 4 functions |
+| `src/lib/queries/kpi.ts` | Add `clientId: string` param to `getKPISummary()`, `buildDashboardKPIsFromDB()`; propagate to 5 inner calls |
+| `src/agents/dataContext.ts` | Add `buildSnapshotFromDB(clientId: string): Promise<FinanceSnapshot>` alongside existing `getFinanceSnapshot()` |
+| `src/app/api/agent/route.ts` | Replace `getFinanceSnapshot()` with `await buildSnapshotFromDB(clientId)` in `callClaude()` |
+| `src/app/api/ingest/route.ts` | Document `defaultConfig.clientId` as Sprint 3 replacement target |
+| `src/config/client.config.ts` | Document `clientId: "demo-client"` as Sprint 3 replacement target |
+
+**Phase 2 — Dashboard Path (~1 day)**
+
+| File | Change |
+|---|---|
+| Dashboard server component(s) | Replace static data imports with `buildDashboardKPIsFromDB(clientId)` |
+| Chart components (`src/components/charts/*.tsx`) | Accept `data` props from async parent instead of importing from `src/data/*` |
+| KPI components (`src/components/kpi/*.tsx`) | Same pattern |
+| `src/lib/queries/kpi.ts` | Verify `buildDashboardKPIsFromDB()` output matches all dashboard prop shapes |
+
+---
+
+#### 3. Lowest-Risk Implementation Path
+
+Additive, not replacement. `getFinanceSnapshot()` stays untouched throughout both phases.
+
+**Step 1 — Add `client_id` to all 5 query files**
+
+In each of `actuals.ts`, `vendors.ts`, `headcount.ts`, `contractors.ts`, `kpi.ts`:
+- Add `clientId: string` parameter to every exported function
+- Append `AND client_id = ?` to every WHERE clause (parameterized — not string interpolation)
+- Fix the string interpolation year filter in `getMonthlyTotals` — convert to parameterized binding before adding `clientId`
+
+**Step 2 — Build `buildSnapshotFromDB()` in `dataContext.ts`**
+
+New async function, same file as `getFinanceSnapshot()`. Calls all 5 query modules in `Promise.all`, maps DB row types to `FinanceSnapshot` shape:
+- `ContractorRow` → `Contractor` — safe direct cast (superset)
+- `VendorRow` → `Vendor` — structurally compatible
+- `HeadcountRow` → `HeadcountRecord` — structurally compatible
+- `MonthlyTotal` → variance fields: compute `variance = actual - budget`, `variancePct = variance / budget` during mapping
+- Cloud spend: derive from `fact_transactions WHERE category = 'Cloud' GROUP BY business_unit` (proxy; `dim_cloud_provider` is a deferred item)
+
+**Step 3 — Swap `callClaude()` to use DB snapshot**
+
+`src/app/api/agent/route.ts` line 173, inside the already-`async` `callClaude()`:
+```
+// before: const snapshot = getFinanceSnapshot();
+// after:  const snapshot = await buildSnapshotFromDB(clientId);
+```
+`clientId` sourced from `defaultConfig.clientId` until Sprint 3 auth lands.
+
+**Step 4 — Validate and commit**
+
+`npx tsc --noEmit`, re-run the 5 smoke test questions from Session N. Confirm financial values reflect what was ingested, not static TypeScript arrays. Commit Phase 1 separately from Phase 2.
+
+---
+
+#### 4. Dashboard Impact
+
+**Phase 1 (agent path only):**
+- Dashboard pages are **unaffected** — still read from `src/data/*.ts`
+- Zero visual change, zero regression risk
+- KPIs on dashboard and agent responses may diverge during the transition window (agents use DB, dashboard uses static) — acceptable
+
+**Phase 2 (dashboard path):**
+- All KPI tiles, charts, tables switch from static imports to DB-backed async queries
+- Server components become `async`; data fetched at request time, not build time
+- Page load adds one DB round-trip (~10–50ms Databricks, <5ms SQLite)
+- Chart prop shapes must be verified against `buildDashboardKPIsFromDB()` output before switching
+
+---
+
+#### 5. Agent Impact
+
+- **Live Claude path** (`/api/agent` with API key): agents receive real DB data — the core Sprint 2 outcome
+- **Mock path** (no API key): **unaffected** — `dispatchAgent()` still reads `getFinanceSnapshot()` from static arrays
+- **Role-analysis engine**: `FinanceSnapshot` shape unchanged — detectors work without modification
+
+---
+
+#### 6. `client_id` Requirements
+
+All 5 query modules need `AND client_id = ?` added with a parameterized binding.
+
+**Pre-Sprint requirement for Databricks:** run migration scripts before Phase 1 executes against live Databricks:
+- `001-add-client-id.sql` — add column if not already present
+- `002-backfill-client-id.sql` — set `client_id = 'demo-client'` for all existing rows
+
+LocalAdapter (`initSchema()`) creates tables fresh each time — no migration needed for SQLite dev.
+
+**⚠ String injection risk:** `getMonthlyTotals` in `actuals.ts` currently filters year via string interpolation (`${year}`). Must be converted to a parameterized binding before `client_id` is added — otherwise the WHERE clause mixes literal injection and parameters.
+
+---
+
+#### 7. Rollback Plan
+
+- **Per-phase commits:** Phase 1 and Phase 2 committed separately; each revertable independently
+- **Single-line revert (Phase 1):** only one call site changes in `callClaude()` — trivial to revert
+- **Optional feature flag:** `USE_DB_SNAPSHOT=true` env var gates the swap in `callClaude()`, enabling Vercel rollback without a code revert
+- **Static data preserved:** `src/data/*.ts` not deleted or modified; `getFinanceSnapshot()` remains the mock path fallback indefinitely
+
+---
+
+#### 8. Estimated Effort
+
+| Phase | Scope | Estimate |
+|---|---|---|
+| Phase 1 — Agent path | `client_id` in 5 query files + `buildSnapshotFromDB()` + swap `callClaude()` + type mapping + smoke test | ~1.5 days |
+| Phase 2 — Dashboard path | Connect server components to `buildDashboardKPIsFromDB()` + verify chart prop shapes | ~1 day |
+| **Total** | | **~2.5 days** |
+
+**Not included:** Cloud billing connector or `dim_cloud_spend` table for provider-level CIO page accuracy. Cloud spend in Phase 1 is a proxy from `fact_transactions WHERE category = 'Cloud'`. Provider-level breakdown is a separate sprint.
+
+---
+
+### Files Modified This Session
+
+| File | Change |
+|---|---|
+| `HANDOFF.md` | Architecture review + Sprint 2 plan appended (this session) |
+
+---
+
+### Security Constraints Maintained
+
+- No client names hardcoded
+- `.env.local` not committed
+- `ANTHROPIC_API_KEY` not in any committed file
+- `src/middleware.ts` remains untracked — do not commit as-is
+
+---
+
+### Next Session Priorities
+
+1. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — no code required, highest impact
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G; required for Claude + guards to execute
+3. **`git push origin main`** — deploy all unpushed commits (Sessions H–N)
+4. ~~**Sprint 2 Phase 1**~~ — **COMPLETE** (see session below)
+5. **Sprint 1 auth decision** — Clerk re-integration (Next.js 15 upgrade or Clerk v4/v5) unblocks `client_id` from session and ingest multi-tenancy
+
+---
+
+## Session Update — June 10, 2026
+
+### Sprint 2 Phase 1 — Agent Data Connection
+
+**Objective:** Connect the live Claude agent path to database-backed queries while preserving the mock path, `getFinanceSnapshot()`, and all existing guards/tests.
+
+**Approach:** Purely additive. No existing function modified — new function `buildSnapshotFromDB()` added alongside `getFinanceSnapshot()`. Single call-site swap in `callClaude()`.
+
+---
+
+#### Changes Made
+
+**1. `src/lib/queries/actuals.ts`**
+
+All 7 exported functions now accept `clientId: string = "demo-client"` as a trailing parameter with `AND client_id = ?` appended to every WHERE clause.
+
+Key fix: `getMonthlyTotals` year filter was previously string-interpolated (`${year}`), which mixed literal injection with parameterized values. Converted to fully parameterized binding: `AND CAST(substr(period, 1, 4) AS INTEGER) = ?` with `year` passed as a bound parameter.
+
+Same pattern applied to period-filter string interpolations in `getByBusinessUnit` and `getByCategory`.
+
+**2. `src/lib/queries/vendors.ts`**
+
+`getVendors(clientId)` — added `WHERE client_id = ?`.  
+`getVendorSpend(period, topN, clientId)` — added `AND t.client_id = ?` on `fact_transactions`.
+
+**3. `src/lib/queries/headcount.ts`**
+
+All 5 functions — `getHeadcount`, `getHCSummary`, `getOpenReqs`, `getHCByBusinessUnit`, `getHeadcountCosts` — accept `clientId` and apply `AND client_id = ?` (or `WHERE client_id = ?` where no prior WHERE existed).
+
+**4. `src/lib/queries/contractors.ts`**
+
+`getContractors(clientId)` — `WHERE client_id = ?`.  
+`getOverBudgetContractors(clientId)` — delegates to `getContractors(clientId)`.  
+`getEndingSoonContractors(withinDays, clientId)` — `AND client_id = ?`.  
+`getContractorsByBU(clientId)` — `WHERE client_id = ?`.
+
+**5. `src/lib/queries/kpi.ts`**
+
+`getKPISummary(clientId)` and `buildDashboardKPIsFromDB(clientId)` — `clientId` propagated to all 5 inner calls. Default `"demo-client"` preserved.
+
+**6. `src/agents/dataContext.ts` — `buildSnapshotFromDB()` added**
+
+New async function appended after `clearSnapshotCache()`. Unchanged functions: `getFinanceSnapshot()`, `clearSnapshotCache()`, all existing static data imports.
+
+Implementation:
+- All 11 queries run in `Promise.all` — no sequential blocking.
+- Cloud spend is a proxy from `fact_transactions WHERE category = 'Cloud'` (no `dim_cloud_provider` yet; `cloudByProvider = []`, `cloudMoMGrowth = 0`).
+- Contractor `overBudgetContractors` and `endingSoonContractors` computed inline from `contractorsData` to avoid extra DB round-trips.
+- `expiringVendors90/180`, `highRiskVendors`, `topVendors` computed inline from `vendorsData`.
+- `risks` and `actions` use `generateRiskFlags()` / `generateRecommendedActions()` (static engines, unchanged).
+- `fullYearBudget` and `fullYearForecast` use `monthlyTotals.length` instead of hardcoded `5`.
+- DB row types cast to `FinanceSnapshot` field types with `as unknown as X` where structural compatibility is guaranteed but TypeScript's literal union vs string types diverge.
+
+**7. `src/app/api/agent/route.ts`**
+
+Two-line change inside `callClaude()`:
+```
+// before:
+import { getFinanceSnapshot } from "@/agents/dataContext";
+const snapshot = getFinanceSnapshot();
+
+// after:
+import { buildSnapshotFromDB } from "@/agents/dataContext";
+import defaultConfig from "@/config/client.config";
+const snapshot = await buildSnapshotFromDB(defaultConfig.clientId);
+```
+
+Mock path (`dispatchAgent`) remains completely unaffected — it still uses `getFinanceSnapshot()` internally via `agentEngine.ts`.
+
+---
+
+#### Validation Results
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 errors |
+| `tests/qa-routing.test.ts` | ✅ 10/10 passed |
+| `src/lib/agents/__tests__/temporal-routing.test.ts` | ✅ 160/160 assertions passed |
+| Mock path (no API key) | ✅ Unaffected — `dispatchAgent` still uses static snapshot |
+| `getFinanceSnapshot()` | ✅ Unchanged |
+| All guards preserved | ✅ Guard check runs before `callClaude()` — not touched |
+
+---
+
+#### Architecture After Phase 1
+
+```
+/api/agent POST
+    │
+    ├─ Guard pre-check (dispatchAgent) ──▶ guard response if matched
+    │
+    └─ callClaude(agentId, question, history)
+            │
+            ├─ classifyIntent / extractTemporalIntent / routeResponseMode
+            │
+            ├─ await buildSnapshotFromDB(defaultConfig.clientId)  ◀── NEW
+            │         │
+            │         └── Promise.all([
+            │               getYTDSummary, getMonthlyTotals, getByBU,
+            │               getVendors, getHeadcount, getHCSummary,
+            │               getOpenReqs, getHCByBU, getContractors,
+            │               getContractorsByBU, cloud proxy query
+            │             ]) → FinanceSnapshot
+            │
+            └─ buildSystemPrompt / Claude API / parseAgentResponse
+```
+
+---
+
+#### What Is Still Static (Intentional Phase 1 Scope Limits)
+
+| Item | Still Static | Phase |
+|---|---|---|
+| Dashboard KPIs / charts | `src/data/*.ts` | Phase 2 |
+| `cloudByProvider` (provider breakdown) | `[]` placeholder | Separate sprint (dim_cloud_provider) |
+| `cloudMoMGrowth` | 0 | Phase 2 |
+| Risk flags / recommended actions | `generateRiskFlags()` + static data | Phase 2 |
+| `clientId` source | `defaultConfig.clientId = "demo-client"` | Sprint 3 (Clerk auth) |
+
+---
+
+#### Next Session Priorities
+
+1. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — agents go live, DB snapshot feeds Claude
+2. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog (required before live Databricks queries work)
+3. **Sprint 2 Phase 2** — connect dashboard server components to `buildDashboardKPIsFromDB(clientId)`; make KPI server components async; verify chart prop shapes
+4. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
+5. **Sprint 3 auth** — Clerk re-integration; `clientId` from session replaces `defaultConfig.clientId`

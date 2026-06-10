@@ -15,7 +15,7 @@ export interface VendorRow {
   riskLevel: "Low" | "Medium" | "High";
 }
 
-export async function getVendors(): Promise<VendorRow[]> {
+export async function getVendors(clientId: string = "demo-client"): Promise<VendorRow[]> {
   const sql = `
     SELECT
       vendor_id, vendor_name, vendor_category,
@@ -23,6 +23,7 @@ export async function getVendors(): Promise<VendorRow[]> {
       contract_value, ytd_spend, remaining,
       business_unit, auto_renew, risk_level
     FROM dim_vendor
+    WHERE client_id = ?
     ORDER BY contract_value DESC
   `;
   const result = await dbQuery<{
@@ -37,7 +38,7 @@ export async function getVendors(): Promise<VendorRow[]> {
     business_unit: string;
     auto_renew: number | boolean;
     risk_level: string;
-  }>(sql);
+  }>(sql, [clientId]);
 
   return result.rows.map((r) => ({
     id:                  r.vendor_id,
@@ -56,7 +57,8 @@ export async function getVendors(): Promise<VendorRow[]> {
 
 export async function getVendorSpend(
   period: string,
-  topN: number = 10
+  topN: number = 10,
+  clientId: string = "demo-client"
 ): Promise<{ vendorId: string | null; vendorName: string; totalSpend: number }[]> {
   const sql = `
     SELECT
@@ -65,7 +67,7 @@ export async function getVendorSpend(
       SUM(t.amount_actual) AS total_spend
     FROM fact_transactions t
     LEFT JOIN dim_vendor v ON t.vendor_id = v.vendor_id
-    WHERE t.period <= ? AND t.transaction_type = 'actual'
+    WHERE t.period <= ? AND t.transaction_type = 'actual' AND t.client_id = ?
     GROUP BY t.vendor_id, vendor_name
     ORDER BY total_spend DESC
     LIMIT ?
@@ -74,7 +76,7 @@ export async function getVendorSpend(
     vendor_id: string | null;
     vendor_name: string;
     total_spend: number;
-  }>(sql, [period, topN]);
+  }>(sql, [period, clientId, topN]);
 
   return result.rows.map((r) => ({
     vendorId:    r.vendor_id,
