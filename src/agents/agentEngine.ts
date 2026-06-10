@@ -15,6 +15,7 @@
 
 import type { AgentId, AgentResponse } from "@/types/finance";
 import { getFinanceSnapshot } from "./dataContext";
+import type { FinanceSnapshot } from "./dataContext";
 import { cfoResponses }          from "./responses/cfo";
 import { fpaResponses }          from "./responses/fpa";
 import { procurementResponses }  from "./responses/procurement";
@@ -399,7 +400,8 @@ function buildMonthlyBreakdownResponse(ctx: ConversationContext): AgentResponse 
 export function dispatchAgent(
   agentId: AgentId,
   question: string,
-  history: ConversationTurn[] = []
+  history: ConversationTurn[] = [],
+  snapshotOverride?: FinanceSnapshot
 ): AgentResponse & {
   routeKey: string;
   responseMode: string;
@@ -407,7 +409,7 @@ export function dispatchAgent(
   fallbackUsed: boolean;
   templateUsed: string | null;
 } {
-  const snapshot   = getFinanceSnapshot();
+  const snapshot   = snapshotOverride ?? getFinanceSnapshot();
   const enriched   = buildEnrichedQuery(question, history);
   const normalized = enriched.toLowerCase().trim();
   const priorRoute = history.filter(h => h.routeKey).slice(-1)[0]?.routeKey ?? null;

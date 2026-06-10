@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
-import { buildSnapshotFromDB } from "@/agents/dataContext";
+import { buildSnapshotFromDB, getFinanceSnapshot } from "@/agents/dataContext";
+import type { FinanceSnapshot } from "@/agents/dataContext";
 import defaultConfig from "@/config/client.config";
 import { buildSystemPrompt, classifyIntent, extractTemporalIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
@@ -80,10 +81,11 @@ function toAnthropicMessages(
 }
 
 async function callClaude(
-  agentId:  AgentId,
-  question: string,
-  history:  ConversationTurn[],
-  attempt   = 0
+  agentId:   AgentId,
+  question:  string,
+  history:   ConversationTurn[],
+  snapshot:  FinanceSnapshot,
+  attempt    = 0
 ): Promise<ReturnType<typeof parseAgentResponse>> {
   const client = getClient();
   if (!client) throw new Error("ANTHROPIC_API_KEY not configured");
@@ -171,9 +173,7 @@ async function callClaude(
   }
 
   // ── Layer 2: System prompt construction ───────────────────────────────────
-  // Sprint 2 Phase 1: use DB-backed snapshot for live Claude path.
-  // clientId sourced from defaultConfig until Sprint 3 Clerk auth lands.
-  const snapshot     = await buildSnapshotFromDB(defaultConfig.clientId);
+  // Snapshot was built once per request in POST() and passed in — no second DB call.
   const systemPrompt = buildSystemPrompt(agentId, snapshot, question);
 
   pipelineLog("SYSTEM_PROMPT_BUILT", {
@@ -258,7 +258,7 @@ async function callClaude(
     if (isRetryable && attempt < MAX_RETRIES) {
       const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
       await sleep(delay);
-      return callClaude(agentId, question, history, attempt + 1);
+      return callClaude(agentId, question, history, snapshot, attempt + 1);
     }
 
     throw err;
@@ -292,11 +292,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Build DB snapshot once — shared by guard, Claude, and mock fallback ──
+    // Falls back to static getFinanceSnapshot() if Databricks env is absent or throws.
+    let snapshot: FinanceSnapshot;
+    const hasDb = Boolean(process.env.DATABRICKS_HOST);
+    if (hasDb) {
+      try {
+        snapshot = await buildSnapshotFromDB(defaultConfig.clientId);
+        pipelineLog("DB_SNAPSHOT_BUILT", {
+          agentId,
+          clientId:  defaultConfig.clientId,
+          ytdActual: snapshot.ytdActual,
+        });
+      } catch (dbErr: unknown) {
+        pipelineLog("DB_SNAPSHOT_FAILED", {
+          agentId,
+          error: (dbErr as Error).message,
+          fallback: "getFinanceSnapshot()",
+        });
+        snapshot = getFinanceSnapshot();
+      }
+    } else {
+      snapshot = getFinanceSnapshot();
+    }
+
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
     if (hasApiKey) {
       // ── Guard pre-check: structured guard responses take priority over Claude ──
-      const guardCheck = dispatchAgent(agentId, question, history);
+      const guardCheck = dispatchAgent(agentId, question, history, snapshot);
       if (guardCheck.routeKey.endsWith('-guard')) {
         pipelineLog("GUARD_RESPONSE_BYPASSED_CLAUDE", {
           agentId,
@@ -309,7 +333,7 @@ export async function POST(request: NextRequest) {
 
       // ── Real Claude path ────────────────────────────────────────────────
       try {
-        const response = await callClaude(agentId, question, history);
+        const response = await callClaude(agentId, question, history, snapshot);
         pipelineLog("REQUEST_COMPLETE", {
           agentId,
           mode:    "live",
@@ -328,7 +352,7 @@ export async function POST(request: NextRequest) {
 
     // ── Mock fallback path ───────────────────────────────────────────────
     await sleep(400 + Math.random() * 800);
-    const mockResponse = dispatchAgent(agentId, question, history);
+    const mockResponse = dispatchAgent(agentId, question, history, snapshot);
 
     // Step 7: WARNING if full-year data injected for a monthly question
     if (mockResponse.fullYearDataInjected && mockResponse.responseMode === 'MONTHLY_FORECAST') {

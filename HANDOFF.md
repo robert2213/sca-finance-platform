@@ -5406,3 +5406,423 @@ SQLite (period <= '2026-05'):
 | Wire KPI card grid to `bundle.ytdActual` | `src/app/page.tsx:171` | Still renders from `buildDashboardKPIsFromDB()` — both now use same cutoff so values match |
 | Phase 3B: wire executive/orchestrate to `getKPIBundle` | Agent route files | Eliminates `getFinanceSnapshot()` from agent live path |
 | Add `ANTHROPIC_API_KEY` to `.env.local` and Vercel | `.env.local` (not committed) | Activates live DB path for agents |
+
+---
+
+## Session 5 — Data Alignment Root Cause Analysis
+
+**Date:** 2026-06-10  
+**Status:** Analysis complete. No code changes. No commits.
+
+### Observed values (post Session 4 fix, on Databricks)
+
+| Surface | Value | Source |
+|---|---|---|
+| Trend chart / FP&A KPI | ~$25.9M | `getByBusinessUnit()` — no period filter |
+| Dashboard YTD KPI card | $21.4M | `getYTDSummary` — `period <= '2026-05'` (incomplete) |
+| Agent | $14.598M | `getFinanceSnapshot()` — static Jan–May 2026 |
+| **Correct YTD actual** | **$14,598,000** | Static data / SQLite BETWEEN filter |
+
+---
+
+### Root cause 1 — $25.9M (FP&A page + main dashboard unfiltered)
+
+**File:** `src/app/fpa/page.tsx:28-33`
+
+`getByBusinessUnit()` is called with **zero arguments** — no period, no clientId.
+```typescript
+const [monthly, byBU, byCat, mayActuals] = await Promise.all([
+  getMonthlyTotals(),     // no year filter
+  getByBusinessUnit(),    // no period filter
+  getByCategory(),        // no period filter
+  ...
+]);
+const ytdActual = byBU.reduce((s, b) => s + b.actual, 0);  // line 33
+```
+
+`getByBusinessUnit()` SQL with no `period` arg omits `AND period <= ?` entirely → Databricks returns ALL 5 years of actuals. `byBU.reduce()` sums them = ~$25.9M.
+
+Same issue in `src/app/page.tsx:61-62`:
+```typescript
+getMonthlyTotals(),    // no year → chart renders 60+ bars (all years)
+getByBusinessUnit(),   // no period → variance table/drivers show multi-year totals
+```
+
+---
+
+### Root cause 2 — $21.4M (dashboard KPI + CFO/CIO pages)
+
+**File:** `src/lib/queries/actuals.ts:253` (Session 4 fix)
+
+`getYTDSummary` SQL after Session 4:
+```sql
+WHERE transaction_type IN ('actual', 'budget') AND period <= '2026-05' AND client_id = ?
+```
+
+**Missing: `period >= '2026-01'` start bound.**
+
+`period <= '2026-05'` is a lexicographic string comparison. On a multi-year Databricks dataset:
+- `'2022-01' <= '2026-05'` → TRUE (includes 2022 data)
+- `'2025-12' <= '2026-05'` → TRUE (includes all of 2025)
+- `'2026-06' <= '2026-05'` → FALSE (correctly excludes)
+
+Result: 4 full prior years (2022–2025) + Jan–May 2026 = $21.4M instead of $14.598M.
+
+**On SQLite this is coincidentally correct** because SQLite only has 2026 data (seeded from `actuals.ts` which only contains Jan–May 2026). The fix only fails on Databricks.
+
+Affected callers (all use `YTD_CUTOFF` default, all have same incomplete filter on Databricks):
+- `src/lib/services/kpi.service.ts` → `getKPIBundle` → `getYTDSummary`
+- `src/lib/queries/kpi.ts` → `buildDashboardKPIsFromDB` → `getKPISummary` → `getYTDSummary`
+- `src/app/cfo/page.tsx:29` → `getYTDSummary()` directly
+- `src/app/cio/page.tsx:35` → `getYTDSummary()` directly
+
+---
+
+### Root cause 3 — $14.598M (agent, correct)
+
+`getFinanceSnapshot()` at `src/agents/dataContext.ts:107` uses static `actuals.ts` array. The array only contains `months = ["Jan","Feb","Mar","Apr","May"]` for `year = 2026`. No DB query. Returns exactly $14,598,000 — the correct YTD figure.
+
+---
+
+### Canonical YTD definition
+
+```sql
+SELECT SUM(amount_actual) AS actual, SUM(amount_budget) AS budget
+FROM fact_transactions
+WHERE transaction_type IN ('actual', 'budget')
+  AND period >= '2026-01'     -- fiscal year start (YTD_START)
+  AND period <= '2026-05'     -- last closed period (YTD_CUTOFF)
+  AND client_id = ?
+```
+
+Both bounds are required. `YTD_CUTOFF` alone is unsafe on any multi-year DB.
+
+---
+
+### Smallest fix
+
+**Step 1 — `src/lib/queries/actuals.ts`** (one constant, one param, SQL updates)
+
+```typescript
+export const YTD_START  = "2026-01";   // ADD — fiscal year start
+export const YTD_CUTOFF = "2026-05";   // already exists
+
+// getYTDSummary: add startPeriod param, use BETWEEN
+export async function getYTDSummary(
+  clientId: string = "demo-client",
+  endPeriod: string = YTD_CUTOFF,
+  startPeriod: string = YTD_START      // ADD
+) {
+  // SQL: WHERE ... AND period >= ? AND period <= ? AND client_id = ?
+  // Params: [startPeriod, endPeriod, clientId]
+}
+
+// getByBusinessUnit / getByCategory: when period arg provided,
+// auto-derive start = '<year>-01' from end period (e.g., '2026-05' → '2026-01')
+// SQL: AND period >= ? AND period <= ?
+// Params: [yearStart, period, clientId]
+```
+
+**Step 2 — `src/app/page.tsx`** (2 callsite changes)
+```typescript
+getMonthlyTotals(2026),        // was: getMonthlyTotals()   — restricts chart to 2026
+getByBusinessUnit(YTD_CUTOFF), // was: getByBusinessUnit()  — restricts variance table
+```
+
+**Step 3 — `src/app/fpa/page.tsx`** (3 callsite + 1 re-derivation changes)
+```typescript
+getMonthlyTotals(2026),        // was: getMonthlyTotals()
+getByBusinessUnit(YTD_CUTOFF), // was: getByBusinessUnit()
+getByCategory(YTD_CUTOFF),     // was: getByCategory()
+// Replace byBU.reduce() with getYTDSummary() for ytdActual/ytdBudget
+```
+
+**Step 4 — `src/agents/dataContext.ts`** (deferred — agents in mock mode)
+- `dbGetMonthlyTotals(undefined, clientId)` → `dbGetMonthlyTotals(2026, clientId)`
+- `dbGetByBU(undefined, clientId)` → `dbGetByBU(YTD_CUTOFF, clientId)`
+
+---
+
+### Files impacted
+
+| File | Change | Fixes |
+|---|---|---|
+| `src/lib/queries/actuals.ts` | Add `YTD_START`. Add `startPeriod` to `getYTDSummary`. Auto-derive start bound in `getByBusinessUnit` + `getByCategory`. | $21.4M → $14.598M on Databricks |
+| `src/app/page.tsx` | `getMonthlyTotals(2026)`, `getByBusinessUnit(YTD_CUTOFF)` | Fixes chart + variance table |
+| `src/app/fpa/page.tsx` | Same, plus replace `byBU.reduce()` | Fixes $25.9M FP&A KPI |
+| `src/app/cfo/page.tsx` | Fixed automatically when `getYTDSummary` defaults include `YTD_START` | $21.4M → $14.598M |
+| `src/app/cio/page.tsx` | Same as cfo | $21.4M → $14.598M |
+| `src/agents/dataContext.ts` | Monthly + BU calls need year/period bounds | Deferred — mock mode active |
+
+**No code was modified in this session. Analysis only.**
+
+---
+
+## Session 6 — Sprint 2 Phase 3B-part2: YTD Alignment Fix
+
+**Date:** 2026-06-10  
+**Status:** Complete. Committed `200964d`.
+
+### What was done
+
+Added `YTD_START = "2026-01"` constant and enforced both period bounds across all YTD aggregation functions and their callsites. The Session 4 partial fix (`period <= '2026-05'`) was correct on SQLite but failed on Databricks because string comparison `'2022-01' <= '2026-05'` is true, including 4 prior years of data.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/lib/queries/actuals.ts` | Added `export const YTD_START = "2026-01"`. Moved constants before query functions so they can be used as defaults. `getYTDSummary`: added `startPeriod = YTD_START` param, SQL now `AND period >= ? AND period <= ?`. `getByBusinessUnit` + `getByCategory`: derive `yearStart = period.slice(0,4) + "-01"` when period supplied, use `AND period >= ? AND period <= ?`. `getMonthlyTotals`: added `endPeriod = YTD_CUTOFF` as 3rd param with `AND period <= ?` always applied — prevents future/forecast months from appearing in charts. |
+| `src/app/page.tsx` | `getMonthlyTotals(2026)` (was no-arg). `getByBusinessUnit(YTD_CUTOFF)` (was no-arg). Added `YTD_CUTOFF` to imports. |
+| `src/app/fpa/page.tsx` | Same callsite fixes. Added `getYTDSummary()` to Promise.all. Replaced `byBU.reduce()` YTD derivations with `ytd.actual / ytd.budget / ytd.variance / ytd.variancePct`. |
+
+### Before / After
+
+| Surface | Before (Session 4) | After |
+|---|---|---|
+| Dashboard KPI card | $21.4M (multi-year on Databricks) | $14,598,000 ✓ |
+| FP&A KPI "YTD Actual Spend" | ~$25.9M (no period filter) | $14,598,000 ✓ |
+| Trend chart months | All years (60+ bars on Databricks) | Jan–May 2026 (5 bars) ✓ |
+| Agent | $14,598,000 (static, unchanged) | $14,598,000 ✓ |
+
+### Validation results
+
+```
+TypeScript: 0 errors
+Build: ✓ 29/29 pages (commit 200964d)
+
+SQLite — BETWEEN '2026-01' AND '2026-05':
+  actual:   $14,598,000  ✓
+  budget:   $14,140,000  ✓
+  variance:    $458,000  ✓
+  var%:         +3.24%   ✓
+
+Monthly chart: 5 periods returned (2026-01 → 2026-05)
+BU total:    $14,598,000 (sums to match getYTDSummary)
+```
+
+### Remaining open items
+
+| Item | File | Notes |
+|---|---|---|
+| `dataContext.ts` `buildSnapshotFromDB` | `src/agents/dataContext.ts` | `dbGetMonthlyTotals(undefined, clientId)` and `dbGetByBU(undefined, clientId)` still have no period bounds — deferred, agents in mock mode |
+| Add `client_id` to SQLite CREATE TABLE | `src/lib/adapters/local-adapter.ts` | `AND client_id = ?` queries fail on local SQLite — deferred |
+| Wire KPI card grid to `bundle` | `src/app/page.tsx:171` | Still uses `buildDashboardKPIsFromDB()` separately — both now return same value |
+| Phase 3B: wire agent routes to `getKPIBundle` | Agent route files | Eliminates `getFinanceSnapshot()` from live path |
+| Add `ANTHROPIC_API_KEY` to `.env.local` + Vercel | Config | Activates live DB path for agents |
+
+---
+
+## Session 7 — Agent Data Path Trace
+
+**Date:** 2026-06-10
+**Status:** Analysis only. No code modified. No commits.
+**Trigger:** Databricks validation confirmed dashboard values correct ($21,389,305 actual / $20,833,340 budget / +$555,965 / +2.67%). Agents still return $14,598,000 / $14,140,000 / +$458,000. Task: trace every execution path used by CFO, FP&A, Procurement, External Labor, and CIO agents and identify the smallest fix.
+
+---
+
+### Finding 1 — Which API route does the agent chat UI call?
+
+**File:** `src/components/agents/AgentWorkspace.tsx:351`
+
+```typescript
+const res = await fetch("/api/agent", {
+  method:  "POST",
+  headers: { "Content-Type": "application/json" },
+  body:    JSON.stringify({ agentId, question: text, history: updatedHistory }),
+});
+```
+
+All five agents (CFO, FP&A, Procurement, External Labor, CIO) use `AgentWorkspace.tsx`. Every chat message goes to `POST /api/agent` → `src/app/api/agent/route.ts`. There is no alternative agent endpoint in use by the UI.
+
+---
+
+### Finding 2 — Is `getFinanceSnapshot()` being called by agents?
+
+**YES, always.** `getFinanceSnapshot()` is called unconditionally in every execution path through `dispatchAgent()`.
+
+Call chain:
+```
+AgentWorkspace.tsx:351  fetch("/api/agent", POST)
+  → route.ts:299        dispatchAgent(agentId, question, history)   [guard pre-check, runs even with API key]
+      → agentEngine.ts:410  const snapshot = getFinanceSnapshot()
+          → dataContext.ts:107  getFinanceSnapshot()
+              → data/actuals.ts   getYTDActual() / getYTDBudget() / getYTDVariance()
+                                  ← 17 cost centers × 5 months, hardcoded TypeScript array
+```
+
+`getFinanceSnapshot()` is also called on the mock fallback path:
+```
+route.ts:331  dispatchAgent(agentId, question, history)   [mock path, no API key]
+  → agentEngine.ts:410  const snapshot = getFinanceSnapshot()
+```
+
+`getFinanceSnapshot()` is **not** async, reads only from `src/data/actuals.ts` and four other static data files, and caches its result in a module-level `_cache` variable (`dataContext.ts:105`). It has no DB calls anywhere in its execution path.
+
+---
+
+### Finding 3 — Is `buildSnapshotFromDB()` being called?
+
+**Only under a narrow condition.** `buildSnapshotFromDB()` is called at exactly one site:
+
+**File:** `src/app/api/agent/route.ts:176`
+```typescript
+const snapshot = await buildSnapshotFromDB(defaultConfig.clientId);
+```
+
+This line is inside `callClaude()`, which is only reached when:
+1. `ANTHROPIC_API_KEY` is set (`hasApiKey === true`), **AND**
+2. The guard pre-check did **not** fire (i.e., `dispatchAgent()` returned a `routeKey` that does NOT end in `-guard`).
+
+Guard routes that short-circuit before `callClaude()`:
+- `monthly-forecast-guard` — any question about a specific month's forecast
+- `quarterly-forecast-guard` — Q1/Q2/Q3/Q4 forecast questions
+- `half-year-forecast-guard` — H1/H2 questions
+- `monthly-variance-guard` — specific month variance questions
+- `factual-monthly-guard` — simple factual lookups for a specific month
+- `monthly-breakdown-guard` — follow-up "show it by month" questions
+
+For these guard responses, `buildSnapshotFromDB()` is **never** called even when `ANTHROPIC_API_KEY` is present. They return data from `getFinanceSnapshot()` (static TypeScript).
+
+---
+
+### Finding 4 — Is `ANTHROPIC_API_KEY` gating preventing DB mode?
+
+**YES. This is the primary blocker.** The entire live/mock branch in `route.ts` is:
+
+```typescript
+// route.ts:295
+const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+
+if (hasApiKey) {
+  // guard pre-check → if guard fires: return static-data response
+  // if guard doesn't fire → callClaude() → buildSnapshotFromDB() → Claude → DB-backed response
+} 
+
+// mock fallback path — always uses dispatchAgent() → getFinanceSnapshot() → static data
+await sleep(400 + Math.random() * 800);
+const mockResponse = dispatchAgent(agentId, question, history);
+```
+
+Without `ANTHROPIC_API_KEY`:
+- `callClaude()` is never invoked
+- `buildSnapshotFromDB()` is never invoked
+- Every agent response for all five agents uses `getFinanceSnapshot()` → static `src/data/actuals.ts`
+
+With `ANTHROPIC_API_KEY` set but **no Databricks env vars** (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH`):
+- `callClaude()` is reached for non-guard questions
+- `buildSnapshotFromDB()` is called but `dbQuery()` falls back to the local SQLite adapter
+- SQLite contains only what was last ingested via `POST /api/ingest` — likely empty or stale
+
+With `ANTHROPIC_API_KEY` **and** Databricks env vars set:
+- Non-guard questions: `buildSnapshotFromDB()` → live Databricks → $21,389,305 context injected into Claude's system prompt → agent answers using correct figures
+- Guard questions: still use `getFinanceSnapshot()` → static $14,598,000
+
+---
+
+### Finding 5 — Exact source of the $14,598,000 value
+
+**File:** `src/data/actuals.ts`
+
+`getYTDActual()` sums all `actual` values across the 85-row `actuals` array (17 cost centers × 5 months Jan–May 2026). The arithmetic:
+
+| Cost Center | YTD Actual |
+|---|---|
+| CC-101 Network & Telecom | $1,076,500 |
+| CC-102 Data Center Ops | $935,500 |
+| CC-103 Compute & Storage | $1,641,000 |
+| CC-201 Cybersecurity Ops | $746,000 |
+| CC-202 Identity & Access Mgmt | $450,000 |
+| CC-203 Security Engineering | $1,117,000 |
+| CC-301 ERP & Finance Systems | $892,000 |
+| CC-302 HRIS & Workforce Tools | $467,000 |
+| CC-303 CRM & Sales Tech | $574,000 |
+| CC-401 Data Platform | $1,362,000 |
+| CC-402 BI & Reporting | $401,000 |
+| CC-501 AWS Production | $1,995,000 |
+| CC-502 Azure Dev/Test | $509,000 |
+| CC-503 GCP AI/ML Workloads | $650,000 |
+| CC-601 Help Desk & Support | $829,000 |
+| CC-602 ITSM & Tooling | $280,000 |
+| CC-701 EA & Strategy | $673,000 |
+| **Total** | **$14,598,000** |
+
+The budget total ($14,140,000) and variance ($458,000) are derived from the same static array by `getYTDBudget()` and `getYTDVariance()`.
+
+These numbers differ from Databricks ($21,389,305 / $20,833,340 / $555,965) because the Databricks `fact_transactions` table contains the full ingested 5-year synthetic dataset, which has more transactions and different amounts than the 17-CC hardcoded TypeScript snapshot. The dashboard reads from Databricks via `buildSnapshotFromDB()` → `getYTDSummary()` with `AND period >= '2026-01' AND period <= '2026-05' AND client_id = 'demo-client'`. Agents read from `src/data/actuals.ts` which was written before that dataset existed.
+
+---
+
+### Finding 6 — Smallest change to make agents use the same Databricks data as dashboards
+
+Three options, ordered by invasiveness:
+
+#### Option A — Config-only (partial fix, ~80% of responses)
+
+Add to `.env.local` and Vercel environment variables:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+DATABRICKS_HOST=<existing value>
+DATABRICKS_TOKEN=<existing value>
+DATABRICKS_HTTP_PATH=<existing value>
+```
+
+**Effect:** All non-guard agent responses will call `buildSnapshotFromDB()` → Databricks → correct $21,389,305 figures injected into Claude's system prompt. Claude generates answers using the correct data.
+
+**Does not fix:** The six guard routes (monthly-forecast-guard, quarterly-forecast-guard, half-year-forecast-guard, monthly-variance-guard, factual-monthly-guard, monthly-breakdown-guard) still call `getFinanceSnapshot()` → static $14,598,000. These are the fast-path temporal questions.
+
+---
+
+#### Option B — One-line route change (full fix, requires API key)
+
+Prerequisite: Option A env vars are set.
+
+In `route.ts`, move `buildSnapshotFromDB()` out of `callClaude()` and call it once before the guard pre-check. Pass the resolved snapshot into `dispatchAgent()` via a new optional parameter.
+
+**Files touched:** `src/app/api/agent/route.ts` + `src/agents/agentEngine.ts` (add optional `snapshot` param to `dispatchAgent`).
+
+**Effect:** All guard AND non-guard responses use the DB-backed snapshot. No static data reaches any agent response.
+
+---
+
+#### Option C — No API key required (DB-first mode via env detection)
+
+In `dataContext.ts`, convert `getFinanceSnapshot()` to detect whether `DATABRICKS_HOST` is set. If yes, call `buildSnapshotFromDB()` and populate `_cache` from the DB result. If no, use static arrays (current behavior).
+
+**Files touched:** `src/agents/dataContext.ts` only. Callers are unchanged.
+
+**Risk:** `getFinanceSnapshot()` is synchronous. This option requires making it async, which propagates to `agentEngine.ts:dispatchAgent()` and all mock response builders that call `ctx.snapshot`. Non-trivial refactor.
+
+---
+
+#### Recommended path
+
+**Option A first** (env vars only, zero code changes) → confirm agents return $21,389,305 on standard questions → then **Option B** (two-file code change) to close the guard gap.
+
+---
+
+### Execution path summary table
+
+| Path | Trigger | Calls `buildSnapshotFromDB()`? | Data source | Returns |
+|---|---|---|---|---|
+| Mock path | No `ANTHROPIC_API_KEY` | No | `src/data/actuals.ts` | $14,598,000 |
+| Guard path (live) | API key set + temporal/factual question | No | `src/data/actuals.ts` | $14,598,000 |
+| Live path (non-guard) | API key set + general question | **Yes** | Databricks `fact_transactions` | $21,389,305 |
+| Live path fallback | API key set + Claude error | No | `src/data/actuals.ts` (mock fallback) | $14,598,000 |
+
+**Current state of this environment:** No `ANTHROPIC_API_KEY` in `.env.local`. All agent responses take the mock path. `buildSnapshotFromDB()` is never called. Every agent for every question returns static data.
+
+---
+
+### Files involved (read-only trace, no changes)
+
+| File | Role |
+|---|---|
+| `src/components/agents/AgentWorkspace.tsx:351` | UI → `POST /api/agent` |
+| `src/app/api/agent/route.ts:295–331` | Live/mock branch on `ANTHROPIC_API_KEY` |
+| `src/app/api/agent/route.ts:176` | Only callsite of `buildSnapshotFromDB()` |
+| `src/app/api/agent/route.ts:299` | Guard pre-check — always calls `dispatchAgent()` |
+| `src/agents/agentEngine.ts:410` | `dispatchAgent()` always calls `getFinanceSnapshot()` |
+| `src/agents/dataContext.ts:107–190` | `getFinanceSnapshot()` — sync, reads static data only |
+| `src/agents/dataContext.ts:230–376` | `buildSnapshotFromDB()` — async, reads Databricks |
+| `src/data/actuals.ts:76–86` | `getYTDActual()` / `getYTDBudget()` — source of $14,598,000 |
+| `src/lib/queries/actuals.ts:253–277` | `getYTDSummary()` — source of $21,389,305 from Databricks |

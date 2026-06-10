@@ -201,6 +201,8 @@ import {
   getYTDSummary as dbGetYTDSummary,
   getMonthlyTotals as dbGetMonthlyTotals,
   getByBusinessUnit as dbGetByBU,
+  YTD_START,
+  YTD_CUTOFF,
 } from "@/lib/queries/actuals";
 import { getVendors as dbGetVendors } from "@/lib/queries/vendors";
 import {
@@ -244,8 +246,8 @@ export async function buildSnapshotFromDB(
     cloudResult,
   ] = await Promise.all([
     dbGetYTDSummary(clientId),
-    dbGetMonthlyTotals(undefined, clientId),
-    dbGetByBU(undefined, clientId),
+    dbGetMonthlyTotals(2026, clientId),
+    dbGetByBU(YTD_CUTOFF, clientId),
     dbGetVendors(clientId),
     dbGetHeadcount(clientId),
     dbGetHCSummary(clientId),
@@ -253,13 +255,14 @@ export async function buildSnapshotFromDB(
     dbGetHCByBU(clientId),
     dbGetContractors(clientId),
     dbGetContractorsByBU(clientId),
-    // Cloud proxy: fact_transactions WHERE category = 'Cloud'
+    // Cloud proxy: fact_transactions WHERE category = 'Cloud', scoped to YTD window.
     // dim_cloud_provider / provider breakdown is a deferred sprint item.
     dbQuery<{ actual: number; budget: number }>(
       `SELECT SUM(amount_actual) AS actual, SUM(amount_budget) AS budget
        FROM fact_transactions
-       WHERE category = 'Cloud' AND transaction_type IN ('actual', 'budget') AND client_id = ?`,
-      [clientId]
+       WHERE category = 'Cloud' AND transaction_type IN ('actual', 'budget')
+         AND period >= ? AND period <= ? AND client_id = ?`,
+      [YTD_START, YTD_CUTOFF, clientId]
     ),
   ]);
 
