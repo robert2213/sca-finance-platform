@@ -1,7 +1,5 @@
 import { formatCurrency, formatPercent } from "@/lib/formatters";
-import { getTotalCloudYTD } from "@/data/cloudSpend";
-import { getYTDSummary, getContractors, getHCSummary } from "@/lib/queries";
-import { generateRiskFlagsAsync } from "@/lib/riskEngine";
+import { getKPIBundle } from "@/lib/services/kpi.service";
 import clsx from "clsx";
 
 interface StatItem {
@@ -12,47 +10,38 @@ interface StatItem {
 }
 
 export default async function StatsBanner() {
-  const [ytd, contractors, hc, risks] = await Promise.all([
-    getYTDSummary(),
-    getContractors(),
-    getHCSummary(),
-    generateRiskFlagsAsync(),
-  ]);
-
-  const cloudYTD  = getTotalCloudYTD();
-  const extLabor  = contractors.reduce((s, c) => s + c.ytdSpend, 0);
-  const critCount = risks.filter(r => r.severity === "critical").length;
+  const bundle = await getKPIBundle();
 
   const stats: StatItem[] = [
     {
       label:  "YTD IT Spend",
-      value:  formatCurrency(ytd.actual, true),
-      sub:    `${ytd.variance > 0 ? "+" : ""}${formatPercent(ytd.variancePct)} vs. budget`,
-      status: ytd.variance > 0 ? "bad" : "good",
+      value:  formatCurrency(bundle.ytdActual, true),
+      sub:    `${bundle.ytdVariance > 0 ? "+" : ""}${formatPercent(bundle.ytdVariancePct)} vs. budget`,
+      status: bundle.ytdVariance > 0 ? "bad" : "good",
     },
     {
       label:  "Cloud Spend",
-      value:  formatCurrency(cloudYTD, true),
+      value:  bundle.cloudActual > 0 ? formatCurrency(bundle.cloudActual, true) : "—",
       sub:    "AWS · Azure · GCP",
-      status: "warn",
+      status: bundle.cloudActual > bundle.cloudBudget ? "warn" : "good",
     },
     {
       label:  "External Labor",
-      value:  formatCurrency(extLabor, true),
-      sub:    `${contractors.length} contractors YTD`,
-      status: "warn",
+      value:  formatCurrency(bundle.externalLaborActual, true),
+      sub:    `${bundle.contractorCount} contractors YTD`,
+      status: bundle.externalLaborActual > bundle.externalLaborBudget ? "warn" : "good",
     },
     {
       label:  "Headcount",
-      value:  `${hc.filled} / ${hc.total}`,
-      sub:    `${hc.open} open reqs`,
-      status: hc.open > 5 ? "warn" : "good",
+      value:  `${bundle.headcountFilled} / ${bundle.headcountTotal}`,
+      sub:    `${bundle.openReqs} open reqs`,
+      status: bundle.openReqs > 5 ? "warn" : "good",
     },
     {
       label:  "Critical Risks",
-      value:  String(critCount),
-      sub:    `${risks.length} total flags`,
-      status: critCount > 0 ? "bad" : "good",
+      value:  String(bundle.riskCount),
+      sub:    `${bundle.totalRiskCount} total flags`,
+      status: bundle.riskCount > 0 ? "bad" : "good",
     },
   ];
 

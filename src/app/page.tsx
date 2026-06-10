@@ -15,7 +15,7 @@ import {
   getOverBudgetContractors, getOpenReqs,
   buildDashboardKPIsFromDB,
 } from "@/lib/queries";
-import { getTotalCloudYTD, getTotalCloudBudgetYTD } from "@/data/cloudSpend";
+import { getKPIBundle } from "@/lib/services/kpi.service";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
 // ─── Section header with optional right-side agent CTA ────────────────────────
@@ -57,13 +57,14 @@ function SectionHeader({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const [monthly, byBU, overConts, allOpenReqs, kpis, risks] = await Promise.all([
+  const [monthly, byBU, overConts, allOpenReqs, kpis, risks, bundle] = await Promise.all([
     getMonthlyTotals(),
     getByBusinessUnit(),
     getOverBudgetContractors(),
     getOpenReqs(),
     buildDashboardKPIsFromDB(),
     generateRiskFlagsAsync(),
+    getKPIBundle(),
   ]);
   const actions = generateRecommendedActions();
 
@@ -76,8 +77,8 @@ export default async function DashboardPage() {
   const sortedBUs       = [...byBU].sort((a, b) => b.variance - a.variance);
   const overBudgetBUs   = sortedBUs.filter(b => b.variance > 0);
   const contExcess      = overConts.reduce((s, c) => s + (c.ytdSpend - c.budget), 0);
-  const cloudActual     = getTotalCloudYTD();
-  const cloudBudget     = getTotalCloudBudgetYTD();
+  const cloudActual     = bundle.cloudActual;
+  const cloudBudget     = bundle.cloudBudget;
   const cloudVar        = cloudActual - cloudBudget;
   const openReqs        = allOpenReqs.filter(h => h.status === "Open");
   const topBU           = overBudgetBUs[0];
@@ -143,11 +144,11 @@ export default async function DashboardPage() {
     highlight:   b.variance > 100_000,
   }));
 
-  // Executive summary numbers
-  const ytdActual = byBU.reduce((s, b) => s + b.actual, 0);
-  const ytdBudget = byBU.reduce((s, b) => s + b.budget, 0);
-  const ytdVar    = ytdActual - ytdBudget;
-  const ytdVarPct = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
+  // Executive summary numbers — sourced from KPIBundle (single DB source)
+  const ytdActual = bundle.ytdActual;
+  const ytdBudget = bundle.ytdBudget;
+  const ytdVar    = bundle.ytdVariance;
+  const ytdVarPct = bundle.ytdVariancePct;
 
   return (
     <PageWrapper
