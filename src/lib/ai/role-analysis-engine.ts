@@ -7,7 +7,8 @@
  * Architecture:
  *   1. Detect material findings for each analysis domain (data-driven)
  *   2. Score findings by materiality + role priority order
- *   3. Promote the question-relevant domain to position 0 (question-first)
+ *   3a. Promote question-relevant domain to position 0 if it exists in ranked
+ *   3b. Synthesize a threshold-free finding if intent is factual and domain absent
  *   4. Frame the top finding in the agent's voice (role-differentiated)
  *   5. Assemble a natural response (2–4 sentences + one follow-up offer)
  *
@@ -39,6 +40,20 @@ const INTENT_TO_DOMAIN: Partial<Record<FinanceIntent, AnalysisDomain>> = {
   PROCUREMENT_ANALYSIS:  "vendor_urgency",       // "which contracts are expiring"
   HEADCOUNT_ANALYSIS:    "headcount_gaps",       // "what is current headcount"
 };
+
+// Intents that request specific data regardless of role significance thresholds.
+// For these, an absent finding means the variance is below threshold — not that
+// the data doesn't exist. We synthesize a threshold-free finding so the answer
+// leads with real numbers.
+// Contrast with RISK_ASSESSMENT / VENDOR_ANALYSIS / PROCUREMENT_ANALYSIS:
+// for those, an absent finding correctly means "no concern in that domain."
+const FACTUAL_INTENTS = new Set<FinanceIntent>([
+  "GENERAL_FINANCIAL_QA",  // "What is our YTD spend?"
+  "VARIANCE_ANALYSIS",     // "Why are we over budget?"
+  "FORECAST_ANALYSIS",     // "Where will we land this year?"
+  "HEADCOUNT_ANALYSIS",    // "What is current headcount?"
+  "COST_CENTER_ANALYSIS",  // "Which cost center is over budget?"
+]);
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -257,6 +272,83 @@ function detectLaborEfficiency(s: FinanceSnapshot): RawFinding | null {
       openFTEReqs:    s.hcSummary.open,
     },
   };
+}
+
+// ─── Factual finding synthesizer ─────────────────────────────────────────────
+// Builds a threshold-free RawFinding directly from snapshot data (materiality 50).
+// Only called when the detector returned null because variance < agent threshold,
+// but the question explicitly asks for that domain's data.
+// NOTE: Cannot call detectBudgetVariance(s, 0) — materiality formula divides by
+// threshold, producing Infinity at threshold=0.
+
+function synthesizeFactualFinding(
+  domain: AnalysisDomain,
+  s:      FinanceSnapshot,
+): RawFinding | null {
+  if (domain === "budget_variance") {
+    const pct     = s.ytdBudget > 0 ? s.ytdVariance / s.ytdBudget : 0;
+    const overBUs = s.byBU.filter(b => b.variance > 0).sort((a, b) => b.variance - a.variance);
+    return {
+      domain: "budget_variance",
+      materiality: 50,
+      data: {
+        ytdActual:    s.ytdActual,
+        ytdBudget:    s.ytdBudget,
+        variance:     s.ytdVariance,
+        variancePct:  pct,
+        topBUName:    overBUs[0]?.bu    ?? "Cloud Engineering",
+        topBUVar:     overBUs[0]?.variance ?? 0,
+        secondBUName: overBUs[1]?.bu    ?? "",
+        secondBUVar:  overBUs[1]?.variance ?? 0,
+        period:       s.periodLabel.replace(/^YTD\s+/i, ""),
+      },
+    };
+  }
+
+  if (domain === "forecast_trajectory") {
+    const overrun = s.fullYearForecast - s.fullYearBudget;
+    const topBU   = s.byBU.filter(b => b.variance > 0).sort((a, b) => b.variance - a.variance)[0];
+    return {
+      domain: "forecast_trajectory",
+      materiality: 50,
+      data: {
+        fullYearForecast: s.fullYearForecast,
+        fullYearBudget:   s.fullYearBudget,
+        overrun,
+        overrunPct:      s.fullYearBudget > 0 ? overrun / s.fullYearBudget : 0,
+        mitigated:       overrun * 0.60,
+        topDriver:       topBU?.bu       ?? "Cloud",
+        topDriverVar:    topBU?.variance ?? 0,
+      },
+    };
+  }
+
+  if (domain === "headcount_gaps") {
+    const openBUs = s.hcByBU
+      .filter(b => b.total > 0)
+      .map(b => ({ ...b, rate: b.filled / b.total }))
+      .sort((a, b) => a.rate - b.rate);
+    const worstBU = openBUs[0];
+    return {
+      domain: "headcount_gaps",
+      materiality: 50,
+      data: {
+        filled:          s.hcSummary.filled,
+        total:           s.hcSummary.total,
+        open:            s.hcSummary.open,
+        fillRate:        s.fillRate,
+        worstBUName:     worstBU?.bu     ?? "Security",
+        worstBUFilled:   worstBU?.filled ?? 0,
+        worstBUTotal:    worstBU?.total  ?? 0,
+        criticalBUCount: openBUs.filter(b => b.rate < 0.70).length,
+        salaryAtRisk:    s.openReqSalaryAtRisk,
+      },
+    };
+  }
+
+  // vendor_urgency, cloud_spend, contractor_compliance: never synthesized.
+  // An absent finding for these genuinely means no concern exists.
+  return null;
 }
 
 // ─── Agent-voice framing ──────────────────────────────────────────────────────
@@ -622,8 +714,15 @@ export function buildRoleAnalysisResponse(ctx: ConversationContext): AgentRespon
   if (preferredDomain) {
     const preferredIdx = ranked.findIndex(r => r.raw.domain === preferredDomain);
     if (preferredIdx > 0) {
+      // Finding exists but isn't first — promote it.
       const [preferred] = ranked.splice(preferredIdx, 1);
       ranked.unshift(preferred);
+    } else if (preferredIdx === -1 && FACTUAL_INTENTS.has(intent)) {
+      // No finding (below this agent's threshold) but the question explicitly
+      // asks for that data. Synthesize a threshold-free finding so the answer
+      // leads with real numbers rather than a role-priority concern.
+      const forced = synthesizeFactualFinding(preferredDomain, s);
+      if (forced) ranked.unshift({ raw: forced, score: 0 });
     }
   }
 

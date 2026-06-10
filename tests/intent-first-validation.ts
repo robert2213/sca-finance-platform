@@ -62,8 +62,11 @@ const Q_RISK   = "What concerns you most right now?";
 
 const AGENTS = ["cfo", "fpa", "procurement", "cio", "external-labor"] as const;
 
-// YTD spend phrases expected for budget_variance domain
-const YTD_PHRASES = ["$14,", "budget", "YTD", "over", "through May"];
+// YTD spend phrases expected for budget_variance domain — checked in FIRST 120 chars.
+// Previously checked full answer; that caused false positives when secondary sentences
+// incidentally contained "budget" or "over". Now we verify the opening sentence leads
+// with budget_variance framing (the synthesis fix target).
+const YTD_LEAD_PHRASES = ["$14,", "through May", "YTD through"];
 // Forecast phrases for forecast_trajectory
 const FCST_PHRASES = ["full-year", "year", "forecast", "$33,", "over"];
 // Risk-first phrases for vendor_urgency or vendor-related lead
@@ -78,14 +81,15 @@ console.log(`\n  Question: "${Q_YTD}"\n`);
 for (const agentId of AGENTS) {
   const r = dispatchAgent(agentId, Q_YTD, [{ role: "user", content: Q_YTD }]);
   const answer = r.answer;
-  const first80 = answer.slice(0, 100);
+  const first120 = answer.slice(0, 120);
 
   console.log(`  [${agentId}] routeKey=${r.routeKey}`);
-  console.log(`    → ${first80.replace(/\n/g, " ")}...`);
+  console.log(`    → ${first120.replace(/\n/g, " ")}...`);
 
-  // All agents should open with YTD dollar figures (budget_variance framing)
-  const hasYTD = YTD_PHRASES.some(p => answer.includes(p));
-  assert(`  ${agentId}: answer contains YTD spend data`, hasYTD, true);
+  // The OPENING sentence (first 120 chars) must contain budget_variance framing.
+  // Checks the first sentence, not incidental word presence later in the answer.
+  const hasYTDLead = YTD_LEAD_PHRASES.some(p => first120.includes(p));
+  assert(`  ${agentId}: opening sentence leads with YTD spend data`, hasYTDLead, true);
   assert(`  ${agentId}: routeKey is default`, r.routeKey, "default");
 }
 
