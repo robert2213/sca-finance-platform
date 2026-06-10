@@ -3733,7 +3733,525 @@ These are required for both the dashboard page SSR queries and the `buildSnapsho
 
 1. **`git push origin main`** — deploy all unpushed commits (Sessions H–N + Phase 1 + build fix `800ae5d`) to Vercel
 2. **Stage and commit remaining unstaged work** — `layout.tsx`, `Sidebar.tsx`, `src/lib/agents/contexts/*.ts` (ClientConfigProvider/context sprint)
-3. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog
+3. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog (see runbook below)
 4. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
 5. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
 6. **Sprint 2 Phase 2** — connect dashboard server components to DB queries
+
+---
+
+## Migration Execution Runbook — client_id Column
+
+**Prepared:** June 10, 2026  
+**Status:** Ready to execute. Not yet run.  
+**Prerequisite:** Databricks credentials must be in `.env.local` (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH`).
+
+### Why This Is Needed
+
+The application queries (all 5 `src/lib/queries/*.ts` files) filter every SELECT with `WHERE client_id = ?`. This column does not yet exist in the live Databricks `nexora.finance` catalog. Until both migrations are run:
+
+- Dashboard pages return HTTP 500 at runtime (even though `npm run build` passes thanks to `force-dynamic`)
+- `buildSnapshotFromDB()` in the agent layer will throw `UNRESOLVED_COLUMN.WITH_SUGGESTION` on any live Databricks query
+
+---
+
+### Tables Affected
+
+| Table | Migration 001 | Migration 002 | Query files that use it |
+|---|---|---|---|
+| `nexora.finance.fact_transactions` | ADD COLUMN | backfill | `actuals.ts` (5 queries), `headcount.ts` (1 query), `vendors.ts` (1 query) |
+| `nexora.finance.dim_vendor` | ADD COLUMN | backfill | `vendors.ts` (2 queries) |
+| `nexora.finance.dim_cost_center` | ADD COLUMN | backfill | *(schema only — no direct query yet)* |
+| `nexora.finance.dim_contractor` | ADD COLUMN | backfill | `contractors.ts` (3 queries) |
+| `nexora.finance.dim_headcount` | ADD COLUMN | backfill | `headcount.ts` (4 queries) |
+
+`dim_period` is intentionally excluded — periods are shared across all clients.
+
+---
+
+### Execution Order
+
+**Step 1 — Run `migrations/001-add-client-id.sql` first**
+
+Adds `client_id STRING` (nullable, no NOT NULL constraint) to all 5 tables. Idempotent — safe to re-run.
+
+```sql
+-- Migration 001: Add client_id to all fact and dimension tables
+-- Run this once against your existing Databricks workspace BEFORE deploying Client A or Client B.
+-- Safe to run multiple times (ADD COLUMN IF NOT EXISTS is idempotent in Databricks).
+--
+-- After running this migration, run migration 002 to backfill existing rows.
+-- Catalog: nexora  Schema: finance
+
+ALTER TABLE nexora.finance.fact_transactions
+  ADD COLUMN IF NOT EXISTS client_id STRING
+  COMMENT 'Multi-tenant client identifier — required for all new writes';
+
+ALTER TABLE nexora.finance.dim_vendor
+  ADD COLUMN IF NOT EXISTS client_id STRING
+  COMMENT 'Multi-tenant client identifier';
+
+ALTER TABLE nexora.finance.dim_cost_center
+  ADD COLUMN IF NOT EXISTS client_id STRING
+  COMMENT 'Multi-tenant client identifier';
+
+ALTER TABLE nexora.finance.dim_contractor
+  ADD COLUMN IF NOT EXISTS client_id STRING
+  COMMENT 'Multi-tenant client identifier';
+
+ALTER TABLE nexora.finance.dim_headcount
+  ADD COLUMN IF NOT EXISTS client_id STRING
+  COMMENT 'Multi-tenant client identifier';
+```
+
+**Step 2 — Run `migrations/002-backfill-client-id.sql` second**
+
+Sets `client_id = 'demo-client'` for every row where `client_id IS NULL`. The built-in verification SELECT at the end of this file confirms completeness.
+
+```sql
+-- Migration 002: Backfill client_id for all existing rows
+-- Run this AFTER migration 001 (add-client-id).
+-- Sets client_id = 'demo-client' for all rows where client_id is NULL.
+-- Catalog: nexora  Schema: finance
+
+UPDATE nexora.finance.fact_transactions
+  SET client_id = 'demo-client'
+  WHERE client_id IS NULL;
+
+UPDATE nexora.finance.dim_vendor
+  SET client_id = 'demo-client'
+  WHERE client_id IS NULL;
+
+UPDATE nexora.finance.dim_cost_center
+  SET client_id = 'demo-client'
+  WHERE client_id IS NULL;
+
+UPDATE nexora.finance.dim_contractor
+  SET client_id = 'demo-client'
+  WHERE client_id IS NULL;
+
+UPDATE nexora.finance.dim_headcount
+  SET client_id = 'demo-client'
+  WHERE client_id IS NULL;
+
+-- Verify row counts after backfill
+SELECT 'fact_transactions' AS tbl, COUNT(*) AS total_rows, COUNT(client_id) AS rows_with_client_id FROM nexora.finance.fact_transactions
+UNION ALL
+SELECT 'dim_vendor',      COUNT(*), COUNT(client_id) FROM nexora.finance.dim_vendor
+UNION ALL
+SELECT 'dim_cost_center', COUNT(*), COUNT(client_id) FROM nexora.finance.dim_cost_center
+UNION ALL
+SELECT 'dim_contractor',  COUNT(*), COUNT(client_id) FROM nexora.finance.dim_contractor
+UNION ALL
+SELECT 'dim_headcount',   COUNT(*), COUNT(client_id) FROM nexora.finance.dim_headcount;
+```
+
+---
+
+### Databricks Validation Queries
+
+Run these after both migrations to confirm the catalog is in the correct state before traffic hits the app.
+
+**1 — Column existence (run after 001)**
+
+```sql
+DESCRIBE TABLE nexora.finance.fact_transactions;
+-- Expect: a row with col_name = 'client_id', data_type = 'string'
+```
+
+Run for each of the 5 tables. Alternatively, use `SHOW COLUMNS IN nexora.finance.<table>`.
+
+**2 — NULL check — no rows should remain without client_id (run after 002)**
+
+```sql
+SELECT
+  'fact_transactions' AS tbl, COUNT(*) AS null_count FROM nexora.finance.fact_transactions WHERE client_id IS NULL
+UNION ALL
+SELECT 'dim_vendor',      COUNT(*) FROM nexora.finance.dim_vendor      WHERE client_id IS NULL
+UNION ALL
+SELECT 'dim_cost_center', COUNT(*) FROM nexora.finance.dim_cost_center WHERE client_id IS NULL
+UNION ALL
+SELECT 'dim_contractor',  COUNT(*) FROM nexora.finance.dim_contractor  WHERE client_id IS NULL
+UNION ALL
+SELECT 'dim_headcount',   COUNT(*) FROM nexora.finance.dim_headcount   WHERE client_id IS NULL;
+```
+
+Expected: all `null_count` values = 0.
+
+**3 — App-query smoke test (mirrors actual runtime query)**
+
+```sql
+-- Mirrors the actuals query used by the dashboard
+SELECT
+  transaction_type,
+  SUM(amount_actual) AS actual,
+  SUM(amount_budget) AS budget
+FROM nexora.finance.fact_transactions
+WHERE transaction_type IN ('actual', 'budget')
+  AND client_id = 'demo-client'
+GROUP BY transaction_type;
+-- Expected: 2 rows returned (one for 'actual', one for 'budget') with non-zero sums
+```
+
+---
+
+### Expected Success Result
+
+After both migrations succeed:
+
+| Check | Expected value |
+|---|---|
+| NULL count query | All 5 tables = 0 nulls |
+| Row count verification (002 built-in) | `total_rows = rows_with_client_id` for all 5 tables |
+| App-query smoke test | Returns rows with `client_id = 'demo-client'` |
+| Dashboard pages at runtime | HTTP 200, data visible (no more 500 errors) |
+| `/api/db/test` GET | Connection check returns OK |
+
+---
+
+### Rollback Plan
+
+**Rollback migration 002 (backfill only — column stays)**
+
+Safest rollback: reverses the UPDATE without touching schema. Column remains, rows return to NULL.
+
+```sql
+UPDATE nexora.finance.fact_transactions  SET client_id = NULL WHERE client_id = 'demo-client';
+UPDATE nexora.finance.dim_vendor         SET client_id = NULL WHERE client_id = 'demo-client';
+UPDATE nexora.finance.dim_cost_center    SET client_id = NULL WHERE client_id = 'demo-client';
+UPDATE nexora.finance.dim_contractor     SET client_id = NULL WHERE client_id = 'demo-client';
+UPDATE nexora.finance.dim_headcount      SET client_id = NULL WHERE client_id = 'demo-client';
+```
+
+After this, re-running 002 is safe — it only updates rows WHERE NULL, so no double-write risk.
+
+**Rollback migration 001 (remove column entirely)**
+
+`DROP COLUMN` on Databricks Delta requires column mapping to be enabled on the table. Enable it first, then drop:
+
+```sql
+-- Step 1: Enable column mapping on each table (run once per table)
+ALTER TABLE nexora.finance.fact_transactions
+  SET TBLPROPERTIES (
+    'delta.columnMapping.mode' = 'name',
+    'delta.minReaderVersion'   = '2',
+    'delta.minWriterVersion'   = '5'
+  );
+-- Repeat for dim_vendor, dim_cost_center, dim_contractor, dim_headcount
+
+-- Step 2: Drop the column
+ALTER TABLE nexora.finance.fact_transactions DROP COLUMN client_id;
+-- Repeat for all 5 tables
+```
+
+**Preferred rollback — Delta time travel**
+
+If row counts are known before the migration, restore using Delta version history (no schema changes needed):
+
+```sql
+-- Find the version just before the migration
+DESCRIBE HISTORY nexora.finance.fact_transactions;
+
+-- Restore to that version (replace N with the version number)
+RESTORE TABLE nexora.finance.fact_transactions TO VERSION AS OF N;
+-- Repeat for all 5 tables
+```
+
+---
+
+### Post-Migration: Runtime Restoration
+
+After both migrations succeed, dashboard pages will return 200 automatically — no code changes, no redeployment needed. The `force-dynamic` pages query Databricks per request; once the column exists and rows are backfilled, all 5 query files will resolve correctly.
+
+The `WHERE client_id IS NULL` guard in migration 002 means re-running it against already-migrated tables is a no-op.
+
+---
+
+## client_id Full Codebase Audit
+
+**Prepared:** June 10, 2026  
+**Scope:** Every SQL query, query builder, and Databricks statement referencing `client_id` across the entire codebase.
+
+---
+
+### Complete SQL Query Inventory
+
+All 16 SQL queries that use `client_id = ?` and their migration status:
+
+| # | File | Function | Table(s) queried | In migration list? |
+|---|---|---|---|---|
+| 1 | `src/lib/queries/actuals.ts:75` | `getMonthlyTotals` | `fact_transactions` | ✅ |
+| 2 | `src/lib/queries/actuals.ts:112` | `getByBusinessUnit` | `fact_transactions` | ✅ |
+| 3 | `src/lib/queries/actuals.ts:154` | `getByCategory` | `fact_transactions` | ✅ |
+| 4 | `src/lib/queries/actuals.ts:196` | `getByPeriod` | `fact_transactions` | ✅ |
+| 5 | `src/lib/queries/actuals.ts:243` | `getYTDSummary` | `fact_transactions` | ✅ |
+| 6 | `src/lib/queries/headcount.ts:38` | `getHeadcount` | `dim_headcount` | ✅ |
+| 7 | `src/lib/queries/headcount.ts:75` | `getHCSummary` | `dim_headcount` | ✅ |
+| 8 | `src/lib/queries/headcount.ts:108` | `getOpenReqs` | `dim_headcount` | ✅ |
+| 9 | `src/lib/queries/headcount.ts:148` | `getHCByBusinessUnit` | `dim_headcount` | ✅ |
+| 10 | `src/lib/queries/headcount.ts:181` | `getLaborBudgetByBU` | `fact_transactions` | ✅ |
+| 11 | `src/lib/queries/contractors.ts:25` | `getContractors` | `dim_contractor` | ✅ |
+| 12 | `src/lib/queries/contractors.ts:86` | `getEndingSoonContractors` | `dim_contractor` | ✅ |
+| 13 | `src/lib/queries/contractors.ts:140` | `getContractorsByBU` | `dim_contractor` | ✅ |
+| 14 | `src/lib/queries/vendors.ts:21` | `getVendors` | `dim_vendor` | ✅ |
+| 15 | `src/lib/queries/vendors.ts:58` | `getVendorSpend` | `fact_transactions` JOIN `dim_vendor` | ✅ (see gap note) |
+| 16 | `src/agents/dataContext.ts:258` | `buildSnapshotFromDB` (inline) | `fact_transactions` | ✅ |
+
+**`dim_cost_center` note:** Has `client_id` in both the DDL (`src/lib/schema/ddl.ts`) and the migration scripts. However, **no SELECT query in `src/lib/queries/` reads from `dim_cost_center` directly** — it is only written to (via MERGE in `writer.ts`). The migration is still correct to include it because new writes stamp `client_id` and future read queries will need it.
+
+**`kpi.ts` note:** Has no direct SQL. Delegates entirely to `actuals.ts`, `headcount.ts`, `contractors.ts`, and `vendors.ts` — all of which are covered above.
+
+**`dim_period` note:** No `client_id` column. Intentional — periods are shared across all tenants.
+
+**`data_quality_log` note:** No `client_id` column. Intentional — audit log is not tenant-scoped in current design.
+
+---
+
+### Findings
+
+#### Finding 1 — CRITICAL: Local SQLite Adapter Missing `client_id` on All 5 Tables
+
+**File:** `src/lib/adapters/local-adapter.ts`  
+**Affected tables (local schema only):** `fact_transactions`, `dim_vendor`, `dim_cost_center`, `dim_contractor`, `dim_headcount`  
+**Impact:** Every query in the query layer will fail with `SQLITE_ERROR: no such column: client_id` when running locally (no Databricks env vars set). This blocks all local development.
+
+**Exact failing queries (all 16 — first example):**
+
+```sql
+-- src/lib/queries/actuals.ts — getYTDSummary()
+SELECT
+  SUM(amount_actual) AS actual,
+  SUM(amount_budget) AS budget
+FROM fact_transactions
+WHERE transaction_type IN ('actual', 'budget') AND client_id = ?
+-- ^ Fails: column "client_id" does not exist in the local SQLite schema
+```
+
+**Exact tables missing `client_id` in `local-adapter.ts`:**
+
+```
+fact_transactions  — line 67   — no client_id column
+dim_vendor         — line 86   — no client_id column
+dim_cost_center    — line 103  — no client_id column
+dim_contractor     — line 124  — no client_id column
+dim_headcount      — line 142  — no client_id column
+```
+
+The `initSchema()` function (line 65) and `seedFromStaticData()` (line 169) both predate the Sprint 2 multi-tenant work and were never updated when `client_id` was added.
+
+**Recommended fix:**
+
+In `src/lib/adapters/local-adapter.ts`:
+
+1. Add `client_id TEXT NOT NULL DEFAULT 'demo-client'` to each of the 5 `CREATE TABLE IF NOT EXISTS` blocks in `initSchema()`.
+2. Add `client_id` to each INSERT statement in `seedFromStaticData()` with value `'demo-client'`.
+3. Add an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS client_id TEXT DEFAULT 'demo-client'` migration guard in `initSchema()` so existing on-disk `.sqlite` files are upgraded (the same file is loaded from `data/nexora-local.sqlite` across HMR reloads).
+
+**Root cause:** `local-adapter.ts` creates its schema independently of `src/lib/schema/ddl.ts`. When Sprint 2 added `client_id` to the Databricks DDL and the query layer, the SQLite schema was not updated in parallel.
+
+---
+
+#### Finding 2 — LOW SEVERITY: `getVendorSpend` JOIN Filters `fact_transactions.client_id` but Not `dim_vendor.client_id`
+
+**File:** `src/lib/queries/vendors.ts:58` — `getVendorSpend()`
+
+```sql
+SELECT
+  t.vendor_id,
+  COALESCE(v.vendor_name, t.vendor_id, 'Unknown') AS vendor_name,
+  SUM(t.amount_actual) AS total_spend
+FROM fact_transactions t
+LEFT JOIN dim_vendor v ON t.vendor_id = v.vendor_id
+WHERE t.period <= ? AND t.transaction_type = 'actual' AND t.client_id = ?
+-- ^ t.client_id filters transactions correctly
+-- ^ v.client_id is NOT filtered — dim_vendor rows from other tenants could be joined
+```
+
+**Table missing a `client_id` filter:** `dim_vendor` (the JOIN side)  
+**Impact:** Not a runtime failure today — there is only one client (`demo-client`). However, in a multi-tenant deployment, if two clients share a `vendor_id` collision, the vendor name returned could belong to the wrong tenant.  
+**Severity:** Does not affect migration execution or current demo operation. Is a data isolation gap for future multi-tenant onboarding.
+
+**Recommended fix:** Add `AND v.client_id = ?` to the WHERE clause (or `AND (v.client_id = ? OR v.client_id IS NULL)` to handle legacy rows):
+
+```sql
+WHERE t.period <= ? AND t.transaction_type = 'actual'
+  AND t.client_id = ?
+  AND (v.client_id = ? OR v.client_id IS NULL)
+```
+
+This requires adding a third `clientId` parameter to the `getVendorSpend` function signature.
+
+---
+
+### Audit Summary
+
+| # | Finding | Severity | Blocks migration? | Blocks local dev? | Blocks Databricks? |
+|---|---|---|---|---|---|
+| 1 | `local-adapter.ts` missing `client_id` on 5 tables | **Critical** | No | **Yes** | No |
+| 2 | `getVendorSpend` JOIN not filtering `dim_vendor.client_id` | Low | No | No | No (single tenant) |
+
+**Migration 001 + 002 cover all necessary Databricks tables.** No Databricks query references `client_id` on an unmigrated table. The migrations are safe to run as-written.
+
+**Local development is broken.** `local-adapter.ts` must be updated before any local testing of the DB-backed query path works.
+
+---
+
+### Files That Need a Code Fix (separate from migrations)
+
+| File | Change needed | Severity |
+|---|---|---|
+| `src/lib/adapters/local-adapter.ts` | Add `client_id TEXT NOT NULL DEFAULT 'demo-client'` to 5 `CREATE TABLE` blocks; add `client_id` to 5 INSERT statements in seed function; add ALTER TABLE guard for existing sqlite files | **Critical** |
+| `src/lib/queries/vendors.ts` | Add `AND (v.client_id = ? OR v.client_id IS NULL)` to `getVendorSpend` JOIN WHERE clause | Low |
+
+---
+
+## Session Update — June 10, 2026 (Live Validation Bug Report)
+
+### Issue: Role Priority Overrides Question Intent in `role-analysis-engine.ts`
+
+**No files were modified this session.** Read-only diagnostic analysis only.
+
+---
+
+### Symptom (Live Validation Finding)
+
+| Question | Expected | Actual |
+|---|---|---|
+| "What is our YTD spend?" (all agents) | All agents answer the question first, then provide role-specific interpretation | FP&A answers correctly. CFO, Procurement, CIO, and External Labor ignore the question and jump directly to their highest-priority concern |
+
+---
+
+### Root Cause
+
+`buildRoleAnalysisResponse()` in `src/lib/ai/role-analysis-engine.ts:568–629` is **fully question-blind**. It receives `ctx: ConversationContext` which carries `ctx.question`, but never reads it.
+
+The scoring formula at lines 587–598:
+
+```typescript
+const priorityScore = (domain: AnalysisDomain) => {
+  const idx = perspective.analysisPriorities.indexOf(domain);
+  return idx === -1 ? 0 : (perspective.analysisPriorities.length - idx) * 10;
+};
+
+const ranked = allRaw
+  .filter((r): r is RawFinding => r !== null)
+  .map(r => ({ raw: r, score: r.materiality + priorityScore(r.domain) }))
+  .sort((a, b) => b.score - a.score);
+```
+
+`priorityScore` adds up to `(6 - 0) * 10 = 60` points for a domain at role priority index 0. Typical materiality scores are 40–86. The priority bonus is large enough to push a role's top-concern domain above a finding that directly answers the user's question.
+
+**Trace for "What is our YTD spend?":**
+
+| Agent | Role priority #1 | `vendor_urgency` / top score | `budget_variance` score | Winner |
+|---|---|---|---|---|
+| FP&A | `budget_variance` (idx 0, +60) | 80 + 60 = **140** | 80 + 60 = **140** | `budget_variance` ✅ — coincidentally also answers the question |
+| CFO | `vendor_urgency` (idx 0, +60) | ~87 + 60 = **147** | 80 + 20 = 100 | `vendor_urgency` ❌ |
+| Procurement | `vendor_urgency` (idx 0, +60) | ~87 + 60 = **147** | 80 + 20 = 100 | `vendor_urgency` ❌ |
+| CIO | `cloud_spend` (idx 0, +60) | 80 + 60 = **140** | 80 + 10 = 90 | `cloud_spend` ❌ |
+| External Labor | `contractor_compliance` (idx 0, +60) | ~50 + 60 = **110** | 80 + 30 = 110 | Tied — order undefined |
+
+**Why FP&A works:** `budget_variance` is both FP&A's role priority #1 and the answer to "YTD spend." It wins by coincidence, not design.
+
+**Why the question is invisible:** "What is our YTD spend?" classifies as `GENERAL_FINANCIAL_QA` in `intent-classifier.ts` (no ytd/spend keyword in any scored intent definition — no `YTD_ANALYSIS` intent exists). The fallback directive says "answer specifically," but the role engine never calls `classifyIntent()` at all. The `ctx.question` field exists on `ConversationContext` and is passed in, but `buildRoleAnalysisResponse` ignores it entirely.
+
+---
+
+### Where Intent Should Be Evaluated
+
+**Lines 598–604 in `src/lib/ai/role-analysis-engine.ts`** — after the `ranked` array is built by role-priority scoring, before `primary = ranked[0]` is selected (line 604). This is the earliest point where a re-ordering can redirect the leading finding without touching any detector, voice framer, or guard chain.
+
+The architecture needs a **separation of concerns**:
+- The question determines **which finding leads** (question-first)
+- The role perspective determines **how it's framed** and **what secondary observation accompanies it** (role-differentiated)
+
+Currently both are collapsed into a single score, so role priority swamps question intent.
+
+---
+
+### Proposed Design — Smallest Architectural Change
+
+**One change in `src/lib/ai/role-analysis-engine.ts`. No other files require modification.**
+
+**Step 1 — Add an `INTENT_TO_DOMAIN` constant** mapping each `FinanceIntent` to the `AnalysisDomain` that most directly answers it:
+
+```typescript
+const INTENT_TO_DOMAIN: Partial<Record<FinanceIntent, AnalysisDomain>> = {
+  GENERAL_FINANCIAL_QA:  "budget_variance",    // "YTD spend" → lead with YTD numbers
+  VARIANCE_ANALYSIS:     "budget_variance",
+  FORECAST_ANALYSIS:     "forecast_trajectory",
+  RISK_ASSESSMENT:       "vendor_urgency",
+  VENDOR_ANALYSIS:       "vendor_urgency",
+  COST_CENTER_ANALYSIS:  "budget_variance",
+  PROCUREMENT_ANALYSIS:  "vendor_urgency",
+  HEADCOUNT_ANALYSIS:    "headcount_gaps",
+  // EXECUTIVE_SUMMARY: intentionally omitted — let role priorities lead for summary requests
+};
+```
+
+**Step 2 — After `ranked` is sorted, call `classifyIntent(ctx.question)` and promote the question-relevant domain to position 0:**
+
+```typescript
+// After .sort((a, b) => b.score - a.score)  (line 598)
+// Before: const primary = frameFinding(ranked[0].raw...)  (line 604)
+
+const { intent } = classifyIntent(ctx.question);
+const preferredDomain = INTENT_TO_DOMAIN[intent];
+if (preferredDomain) {
+  const idx = ranked.findIndex(r => r.raw.domain === preferredDomain);
+  if (idx > 0) {
+    const [preferred] = ranked.splice(idx, 1);
+    ranked.unshift(preferred);
+  }
+}
+```
+
+`classifyIntent` is already exported from `src/lib/ai/intent-classifier.ts` and already used throughout the codebase. One new import is needed.
+
+**Behavior after fix:**
+
+| Agent | Question | Leading finding | Secondary finding |
+|---|---|---|---|
+| CFO | "What is our YTD spend?" | `budget_variance` (CFO strategic voice) | `vendor_urgency` (CFO's role concern) |
+| Procurement | "What is our YTD spend?" | `budget_variance` (operational sourcing voice) | `vendor_urgency` (procurement's role concern) |
+| CIO | "What is our YTD spend?" | `budget_variance` (technical voice) | `cloud_spend` (CIO's role concern) |
+| External Labor | "What is our YTD spend?" | `budget_variance` (operational labor voice) | `contractor_compliance` (labor agent's role concern) |
+| FP&A | "What is our YTD spend?" | `budget_variance` (analytical voice) | unchanged (already correct) |
+
+Role differentiation is preserved: the `frameFinding()` voice templates (lines 315–352) still render each agent differently. The CFO's `budget_variance` sentence reads "IT is tracking X% over budget through May — $Y actual against $Z plan, a $W gap" (strategic framing). FP&A's reads "YTD through May 2026: $X against $Y budget — $Z over (P%). Top BU: Cloud Engineering +$N" (analytical framing). Same finding, different voice, different follow-up offer.
+
+---
+
+### Files Impacted
+
+| File | Change | Lines added |
+|---|---|---|
+| `src/lib/ai/role-analysis-engine.ts` | Add `INTENT_TO_DOMAIN` constant + 7-line re-rank block + `classifyIntent`/`FinanceIntent` import | ~20 |
+| `src/lib/ai/intent-classifier.ts` | Read only — `classifyIntent` and `FinanceIntent` already exported | 0 |
+| `tests/conversational-response.test.ts` | New Group 18: "YTD spend across all 5 agents" — assert leading finding is `budget_variance` for each | ~30 |
+
+---
+
+### Regression Risk
+
+| Area | Risk | Rationale |
+|---|---|---|
+| FP&A on "YTD spend" | None | `budget_variance` already wins for FP&A — splice condition `idx > 0` never fires |
+| Temporal guards | None | Guards run in `agentEngine.ts` before the `default` handler; role engine is only reached when no guard or specialized route matches |
+| Specialized keyword routes | None | Role engine only handles the `default` route. `vendor-urgency`, `forecast`, `bva`, `contracts-expiry`, `cloud-spend` etc. are untouched |
+| `noSignificantFindings` path | None | Only fires when `ranked.length === 0`; splice only fires when `idx > 0` and `idx !== -1` |
+| `EXECUTIVE_SUMMARY` questions | None | Intentionally omitted from `INTENT_TO_DOMAIN` — role priorities lead for summary requests |
+| Questions where preferred domain has no finding | None | `ranked.findIndex()` returns -1; guard `idx > 0` is false; behavior unchanged |
+| Role differentiation | Preserved | `frameFinding()` and all 5 voice templates are untouched. Secondary observation remains role-priority ranked. |
+| Mock path guard chain | None | `buildRoleAnalysisResponse` is only called via the `default` route handler; all temporal/mode guards fire before that |
+
+---
+
+### Next Session Priorities (updated)
+
+1. **Fix `role-analysis-engine.ts`** — add `INTENT_TO_DOMAIN` + re-rank block + import (~20 lines); add Group 18 test assertions for "YTD spend" across all 5 agents
+2. **`git push origin main`** — deploy all unpushed commits to Vercel
+3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
+4. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
+5. **Fix `local-adapter.ts`** — add `client_id` column to 5 SQLite tables (blocks all local DB-path testing)
+6. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql`

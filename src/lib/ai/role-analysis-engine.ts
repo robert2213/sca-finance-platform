@@ -6,9 +6,10 @@
  *
  * Architecture:
  *   1. Detect material findings for each analysis domain (data-driven)
- *   2. Score findings by materiality for this agent's priorities
- *   3. Frame the top finding in the agent's voice
- *   4. Assemble a natural response (2–4 sentences + one follow-up offer)
+ *   2. Score findings by materiality + role priority order
+ *   3. Promote the question-relevant domain to position 0 (question-first)
+ *   4. Frame the top finding in the agent's voice (role-differentiated)
+ *   5. Assemble a natural response (2–4 sentences + one follow-up offer)
  *
  * Called only from buildDefaultAnswer — specialized routes are untouched.
  */
@@ -21,6 +22,23 @@ import {
   type AnalysisDomain,
   type AgentVoice,
 } from "@/lib/agents/role-perspectives";
+import { classifyIntent, type FinanceIntent } from "@/lib/ai/intent-classifier";
+
+// ─── Question-intent → preferred domain mapping ───────────────────────────────
+// The question determines which finding leads the response. The role perspective
+// then determines how that finding is framed and what secondary observation follows.
+// EXECUTIVE_SUMMARY is omitted intentionally — role priorities should lead for
+// explicit summary requests.
+const INTENT_TO_DOMAIN: Partial<Record<FinanceIntent, AnalysisDomain>> = {
+  GENERAL_FINANCIAL_QA:  "budget_variance",     // "YTD spend", "how are we doing"
+  VARIANCE_ANALYSIS:     "budget_variance",      // "why are we over budget"
+  FORECAST_ANALYSIS:     "forecast_trajectory",  // "where will we land this year"
+  RISK_ASSESSMENT:       "vendor_urgency",       // "what concerns you most right now"
+  VENDOR_ANALYSIS:       "vendor_urgency",       // "which vendor concerns you most"
+  COST_CENTER_ANALYSIS:  "budget_variance",      // "which cost center is over budget"
+  PROCUREMENT_ANALYSIS:  "vendor_urgency",       // "which contracts are expiring"
+  HEADCOUNT_ANALYSIS:    "headcount_gaps",       // "what is current headcount"
+};
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -596,6 +614,18 @@ export function buildRoleAnalysisResponse(ctx: ConversationContext): AgentRespon
       score: r.materiality + priorityScore(r.domain),
     }))
     .sort((a, b) => b.score - a.score);
+
+  // Promote question-relevant domain to position 0.
+  // The question determines what gets answered first; the role determines how.
+  const { intent } = classifyIntent(ctx.question);
+  const preferredDomain = INTENT_TO_DOMAIN[intent];
+  if (preferredDomain) {
+    const preferredIdx = ranked.findIndex(r => r.raw.domain === preferredDomain);
+    if (preferredIdx > 0) {
+      const [preferred] = ranked.splice(preferredIdx, 1);
+      ranked.unshift(preferred);
+    }
+  }
 
   if (ranked.length === 0) {
     return noSignificantFindings(s);
