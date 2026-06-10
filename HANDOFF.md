@@ -2541,3 +2541,148 @@ if (hasApiKey) {
 2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — currently calls `getAgentResponse` directly, bypassing the API route and its guard pre-check (open from Session G)
 3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars if not already present
 4. **Vendor variance mock template** — procurement mock content gap (open from Session D)
+
+---
+
+## Session Update — June 9, 2026 (Session K)
+
+### Three targeted mock-path fixes
+
+---
+
+### Fix 1 — Future-month forecast answer wording
+
+**Problem:** `"What is June's forecast?"` returned:
+```
+I don't have a separate June forecast value in the current data set. Here's what I can show you for June:
+- June Actuals: not yet available...
+- June Budget: ~$X (per approved plan)
+- Variance vs Budget: not yet determinable
+Would you like me to estimate a June forecast based on the run rate from prior months...
+```
+
+**Root cause:** `buildMonthlyForecastMockResponse()` in `src/agents/agentEngine.ts` had two return paths. The historical-month path (month found in `s.monthly`) answered directly. The future-month path (month not yet in actuals) returned a "missing data" template that deferred instead of answering — even though `projected = recentAvg * (1 + s.momGrowthPct)` was already computed on the line above the return.
+
+**Fix — `src/agents/agentEngine.ts` (future-month branch `answer` string only):**
+
+Before (lines 222–228):
+```
+I don't have a separate ${monthName} forecast value in the current data set. Here's what I can show you...
+Would you like me to estimate...
+```
+
+After:
+```
+${monthName} forecast is approximately ${fmt(projected)} based on the current run rate through ${s.currentMonth.month} 2026. ${monthName} budget is ~${fmt(monthlyBudget)} — projected variance is ${fmt(projected - monthlyBudget)} (${pct(...)}). Actuals will be available when ${monthName} closes. Want a full-year projection or cost center breakdown?
+```
+
+No logic, calculation, routing, or keyPoints changed. Answer string only.
+
+**Commit:** `1f7c3c7`
+
+---
+
+### Fix 2 — Remove redundant keyPoints from future-month forecast responses
+
+**Problem:** After Fix 1 the answer text was correct, but the UI still rendered a "Key Takeaways" panel with two items that duplicated what the answer already said:
+- `"June data not yet available — current data through May 2026"`
+- `"Projected run-rate: ~$X (3-month average + MoM trend)"`
+
+**Root cause:** The future-month branch of `buildMonthlyForecastMockResponse()` returned `keyPoints: [...]` with those two items. `AgentBubble` in `AgentWorkspace.tsx` renders `Key Takeaways` whenever `keyPoints.length > 0` — no gate on routeKey or responseMode. Both items were already fully expressed in the (now fixed) answer string.
+
+**Investigation — three options evaluated:**
+1. `keyPoints: []` at the source — single change, one file, no information lost (recommended)
+2. Gate UI rendering by routeKey — couples renderer to internal route names, fragile as new guards are added
+3. Add `suppressKeyPoints?: boolean` to `AgentResponse` — cleanest long-term but requires type + builder + UI changes for a two-line problem
+
+**Fix — `src/agents/agentEngine.ts` (future-month branch only):**
+
+```typescript
+// before
+keyPoints: [
+  `${monthName} data not yet available — current data through ${s.currentMonth.month} 2026`,
+  `Projected run-rate: ~${fmt(projected)} (3-month average + MoM trend)`,
+],
+
+// after
+keyPoints: [],
+```
+
+Historical-month responses in the same function keep their keyPoints untouched. `buildFactualMonthlyActualsResponse()` already returns `keyPoints: []` for its future-month path — this change makes the two functions consistent.
+
+**Commit:** `2020c0f`
+
+---
+
+### Fix 3 — FPA risk route for business unit risk questions
+
+**Problem:** `"Which business unit is at greatest risk?"` returned the generic default response: `"YTD IT spend is $X... What would you like me to analyze?"`
+
+**Root cause trace:**
+
+| Layer | Finding |
+|---|---|
+| `intent-classifier.ts` | Correctly classifies as `RISK_ASSESSMENT` — but intent classifier is only used on the live Claude path, not mock |
+| `agentEngine.ts` response mode router | Returns `GENERAL_QA` (no temporal pattern) — no guard fires |
+| `fpaResponses` keyword scoring | The word "risk" appears in `intent-classifier.ts` keywords but in none of `fpaResponses` route keyword arrays. All 6 routes score 0. |
+| Fallback | `scored` is empty → `winner = defaultRoute` → generic YTD summary |
+
+**Fix — `src/agents/responses/fpa.ts` — new `bu-risk` route inserted before `default`:**
+
+```typescript
+{
+  key: "bu-risk",
+  keywords: [
+    "risk", "greatest risk", "highest risk", "at risk", "most at risk",
+    "business unit risk", "which business unit", "which bu", "bu risk",
+    "riskiest", "biggest risk",
+  ],
+  weight: 8,
+  handler(ctx) {
+    // Sorts s.byBU by variance descending; names top BU + dollar/pct + driver;
+    // appends second-place BU sentence if present.
+    // Returns keyPoints: [], actions: [] — direct analyst answer only.
+  },
+},
+```
+
+Driver logic: cloud BU → "cloud compute scaling above plan"; data BU → "Snowflake consumption overages"; app/enterprise BU → "consulting scope expansion"; fallback → "a budget overrun without an approved amendment".
+
+**Test output:**
+```
+ANSWER: Cloud Engineering is the highest-risk business unit. It is $179,000 over budget YTD —
+        the largest BU variance at +6.0% unfavorable — and the risk is tied to cloud compute
+        scaling above plan. Infrastructure is second at $78,000 over (+2.2% unfavorable).
+
+routeKey:    bu-risk
+fallbackUsed: false
+keyPoints:   []
+actions:     []
+```
+
+**Commit:** `3c4d7c7`
+
+---
+
+### TypeScript status
+
+All three commits: `npx tsc --noEmit` → **0 errors**.
+
+---
+
+### Files Modified
+
+| File | Commits | Description |
+|---|---|---|
+| `src/agents/agentEngine.ts` | `1f7c3c7`, `2020c0f` | Future-month forecast answer text; empty keyPoints in future-month branch |
+| `src/agents/responses/fpa.ts` | `3c4d7c7` | `bu-risk` route added before default; default renumbered to 8 |
+
+---
+
+### Next Session Priorities
+
+1. **`git push origin main`** — deploy all local commits to Vercel; verify live app behavior with API key active
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — currently calls `getAgentResponse` directly, bypassing the API route and its guard pre-check (open from Session G)
+3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
+4. **Vendor variance mock template** — procurement mock content gap (open from Session D)
+5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
