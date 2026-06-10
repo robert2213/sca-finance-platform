@@ -3682,7 +3682,39 @@ No regressions. Mock path unaffected. `getFinanceSnapshot()` unchanged.
 
 ### Commit Status
 
-**Not committed.** User instruction: "Do not commit yet."
+**Committed: `800ae5d`** — `fix(build): keep server-only databricks code out of client bundle`
+
+**Files staged and committed (11):**
+
+| File | Change |
+|---|---|
+| `HANDOFF.md` | Session notes |
+| `src/components/agents/AgentWorkspace.tsx` | Removed client-side mock fallback; replaced with clean error state |
+| `src/agents/registry.ts` | Removed `respond` function imports from `mockResponses` (eliminated server-only import chain) |
+| `src/agents/types.ts` | Made `respond` optional on `AgentDefinition` |
+| `src/app/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/cfo/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/fpa/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/headcount/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/vendors/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/cio/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+| `src/app/external-labor/page.tsx` | Added `export const dynamic = "force-dynamic"` |
+
+**Excluded from this commit (unstaged, unrelated work):**
+
+| File | Reason excluded |
+|---|---|
+| `src/app/layout.tsx` | ClientConfigProvider wiring — context sprint, not build fix |
+| `src/components/layout/Sidebar.tsx` | `useClientConfig` hook addition — context sprint |
+| `src/lib/agents/contexts/*.ts` | Agent context copy changes — context sprint |
+
+**Build result after commit:**
+
+```
+✓ Compiled successfully
+✓ Generating static pages (29/29)
+TypeScript: 0 errors
+```
 
 ---
 
@@ -3699,9 +3731,9 @@ These are required for both the dashboard page SSR queries and the `buildSnapsho
 
 ### Next Session Priorities
 
-1. **Commit the 10 build-fix files** — these are uncommitted; `npm run build` passes cleanly
-2. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog
-3. **`git push origin main`** — deploy all unpushed commits (Sessions H–N + Phase 1 + build fix) to Vercel
+1. **`git push origin main`** — deploy all unpushed commits (Sessions H–N + Phase 1 + build fix `800ae5d`) to Vercel
+2. **Stage and commit remaining unstaged work** — `layout.tsx`, `Sidebar.tsx`, `src/lib/agents/contexts/*.ts` (ClientConfigProvider/context sprint)
+3. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql` against `nexora.finance` catalog
 4. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
 5. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
 6. **Sprint 2 Phase 2** — connect dashboard server components to DB queries
