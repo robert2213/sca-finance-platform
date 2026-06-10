@@ -4885,3 +4885,362 @@ No changes required in the 6 host pages.
 4. **Fix `local-adapter.ts`** — add `client_id` to 5 SQLite `CREATE TABLE` blocks + INSERT seeds (needed for local dev)
 5. **Run Databricks migrations** — `001-add-client-id.sql` + `002-backfill-client-id.sql`
 6. **Sprint 3** — Clerk auth (`clientId` from session → real multi-tenant) or `AgentChatPanel` wiring
+
+---
+
+## Session Update — June 10, 2026 (Sprint 2 Phase 3A — Shared KPI Service)
+
+### Sprint 2 Phase 3A: Shared KPI Service — COMPLETE
+
+**Objective:** Create a single DB-backed KPI source consumed by StatsBanner and the main dashboard page, eliminating the static-data imports and duplicate YTD re-derivations identified in the audit earlier today.
+
+**Commit:** `6d9bf84`
+
+---
+
+### New File
+
+**`src/lib/services/kpi.service.ts`**
+
+Exports `KPIBundle` (typed interface) and `getKPIBundle(clientId = "demo-client")`.
+
+Five DB queries run in parallel via `Promise.all`:
+
+| Query | Fields populated |
+|---|---|
+| `getYTDSummary(clientId)` | `ytdActual`, `ytdBudget`, `ytdVariance`, `ytdVariancePct` |
+| `getHCSummary(clientId)` | `headcountFilled`, `headcountTotal`, `openReqs` |
+| `getContractors(clientId)` | `externalLaborActual`, `externalLaborBudget`, `contractorCount` |
+| `getByCategory(undefined, clientId)` | `cloudActual`, `cloudBudget` (category = 'Cloud' row) |
+| `generateRiskFlagsAsync(clientId)` | `riskCount` (critical only), `totalRiskCount` |
+
+Cloud proxy: `getByCategory()` returns a row per spend category from `fact_transactions`. The `Cloud` row provides the category-level actual and budget. If no `Cloud` row exists in the dataset, `cloudActual` and `cloudBudget` are both `0` — no error thrown; callers render `"—"` for the value. Provider-level breakdown (AWS/Azure/GCP) remains deferred pending `dim_cloud_provider`.
+
+---
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `src/lib/services/kpi.service.ts` | **NEW** — `KPIBundle` interface + `getKPIBundle()` |
+| `src/components/dashboard/StatsBanner.tsx` | Replaced 5 imports + `Promise.all` + `getTotalCloudYTD()` with single `getKPIBundle()` call |
+| `src/app/page.tsx` | Removed `getTotalCloudYTD`/`getTotalCloudBudgetYTD` static import; added `getKPIBundle()` to existing `Promise.all`; replaced static cloud vars (lines 79–81) and `byBU.reduce()` YTD re-derivation (lines 147–150) with bundle fields |
+
+---
+
+### Mismatches Fixed
+
+| Bug | Before | After |
+|---|---|---|
+| StatsBanner Cloud Spend | `getTotalCloudYTD()` — static `src/data/cloudSpend.ts` | `bundle.cloudActual` — DB `getByCategory()` |
+| Dashboard exec summary YTD | `byBU.reduce(sum actual/budget)` — independent 3rd derivation | `bundle.ytdActual/ytdBudget` — `getYTDSummary()` |
+| Dashboard exec summary variance | `ytdActual - ytdBudget` inline — 4th variance calculation | `bundle.ytdVariance/ytdVariancePct` — pre-computed in service |
+| Dashboard cloud variance drivers | `getTotalCloudYTD()` — static | `bundle.cloudActual/cloudBudget` — DB |
+| StatsBanner External Labor status | Always "warn" (hardcoded) | Dynamic: warn if `externalLaborActual > externalLaborBudget` |
+
+---
+
+### Remaining Open Items (from audit — NOT done in this sprint)
+
+| Item | Status |
+|---|---|
+| `/api/agent/executive` still uses `getFinanceSnapshot()` (static) | Deferred — Phase 3B |
+| `/api/agent/orchestrate` still uses `getFinanceSnapshot()` (static) | Deferred — Phase 3B |
+| `agentEngine.ts` + `orchestrator.ts` use `getFinanceSnapshot()` (static) | Deferred — Phase 3B |
+| `src/lib/metrics.ts::buildDashboardKPIs()` still exists (orphaned) | Delete in Phase 3B cleanup |
+| `riskEngine.ts::generateRiskFlags()` (sync) still uses static data | Retained unchanged per scope |
+| CIO cloud cards still use `src/data/cloudSpend.ts` | Out of scope per task brief |
+| `dim_cloud_provider` table for provider breakdown | Deferred backlog |
+| `generateRiskFlagsAsync()` called twice on dashboard page (once directly, once via bundle) | Acceptable — both in same `Promise.all`, run in parallel; dedup in Phase 3B |
+
+---
+
+### Validation Results
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | **0 errors** |
+| `npx next build` | **✓ Build passed** |
+| Static pages | **29/29** |
+| Dynamic routes | `/`, `/cfo`, `/cio`, `/external-labor`, `/fpa`, `/headcount`, `/vendors` — all 7 correct |
+
+---
+
+### Next Session Priorities (Updated)
+
+1. **`git push origin main`** — deploy Sprint 2 Phase 3A to Vercel
+2. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars → all 8 agents go live
+3. **Sprint 2 Phase 3B** — align `/api/agent/executive` + `/api/agent/orchestrate` to `buildSnapshotFromDB()`; delete `buildDashboardKPIs()` from `metrics.ts`
+4. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
+5. **Fix `local-adapter.ts`** — add `client_id` to 5 SQLite `CREATE TABLE` blocks + INSERT seeds
+
+---
+
+## Session Update — June 10, 2026 — KPI Architecture Audit
+
+### Audit: KPI Source Inventory, Mismatch Root Cause, and Refactor Plan
+
+**Objective:** Trace every source used for YTD Spend, Budget, Variance $, Variance %, Headcount, External Labor, and Cloud Spend. Identify all duplicate calculation paths and design a single shared KPI service.
+
+---
+
+### 1. Current-State Architecture Map
+
+Two parallel KPI pipelines coexist. Neither is authoritative for all consumers.
+
+```
+PATH A — Static Mock Data
+  src/data/actuals.ts · cloudSpend.ts · externalLabor.ts · headcount.ts
+           │
+           ▼
+  src/lib/metrics.ts::buildDashboardKPIs()     ← ORPHANED (nothing calls it)
+  src/agents/dataContext.ts::getFinanceSnapshot()  ← module-level cached
+           │
+     ┌─────┼─────────────────────────────────────┐
+     ▼     ▼                                     ▼
+  agentEngine.ts  orchestrator.ts   /api/agent/executive
+                                    /api/agent/orchestrate
+  src/lib/riskEngine.ts::generateRiskFlags()   ← 100% static
+
+PATH B — Databricks / SQLite
+  src/lib/queries/actuals.ts · headcount.ts · contractors.ts · vendors.ts
+           │
+           ▼
+  src/lib/queries/kpi.ts::getKPISummary() → buildDashboardKPIsFromDB()
+           │
+     ┌─────┼────────────────────────────────────────┐
+     ▼     ▼                                        ▼
+  src/app/page.tsx    StatsBanner.tsx    /api/agent (POST only)
+  (KPI card section)  (YTD+HC+Labor)    buildSnapshotFromDB()
+
+HYBRID / SPLIT CONSUMERS (mismatches)
+  src/app/page.tsx
+    ├── KPI cards         → buildDashboardKPIsFromDB()      PATH B
+    ├── Cloud variance    → getTotalCloudYTD()              PATH A  ← BUG
+    └── Exec summary text → byBU.reduce(sum)                PATH B  ← 3rd calc
+  StatsBanner.tsx
+    ├── YTD IT Spend      → getYTDSummary()                 PATH B
+    ├── Cloud Spend       → getTotalCloudYTD()              PATH A  ← BUG
+    ├── External Labor    → getContractors()                PATH B
+    └── Headcount         → getHCSummary()                  PATH B
+  riskEngine.ts::generateRiskFlags()
+    └── Cloud risk flag   → getTotalCloudYTD()              PATH A  ← BUG
+```
+
+**Agent API route split:**
+
+| Route | Snapshot | Data path |
+|---|---|---|
+| `POST /api/agent` | `buildSnapshotFromDB()` | Databricks |
+| `POST /api/agent/executive` | `getFinanceSnapshot()` | Static mock |
+| `POST /api/agent/orchestrate` | `getFinanceSnapshot()` | Static mock |
+
+An agent conversation via `/api/agent` cites DB numbers. The same agent via orchestration cites static mock numbers. Both are visible in the same UI session.
+
+---
+
+### 2. KPI Source Inventory
+
+#### YTD Spend
+
+| Consumer | Function | File | Source |
+|---|---|---|---|
+| `buildDashboardKPIs()` | `getYTDActual()` | `src/data/actuals.ts:77` | Static mock |
+| `getFinanceSnapshot()` | `getYTDActual()` | `src/agents/dataContext.ts:110` | Static mock |
+| `buildDashboardKPIsFromDB()` | `getYTDSummary(clientId)` | `src/lib/queries/actuals.ts:242` | Databricks `fact_transactions` |
+| `buildSnapshotFromDB()` | `getYTDSummary(clientId)` | `src/agents/dataContext.ts:246` | Databricks |
+| `StatsBanner.tsx` | `getYTDSummary()` | `src/components/dashboard/StatsBanner.tsx:16` | Databricks |
+| `page.tsx` exec summary | `byBU.reduce(sum actual)` | `src/app/page.tsx:147` | Databricks `getByBusinessUnit()` — **3rd independent calculation** |
+
+#### Budget
+
+| Consumer | Function | File | Source |
+|---|---|---|---|
+| Static paths | `getYTDBudget()` | `src/data/actuals.ts:80` | Static mock |
+| DB paths | `getYTDSummary().budget` | `src/lib/queries/actuals.ts:244` | Databricks |
+| `page.tsx` exec summary | `byBU.reduce(sum budget)` | `src/app/page.tsx:148` | Databricks — **independent re-derivation** |
+
+#### Variance $ and Variance %
+
+| Consumer | File / Lines | Formula | Source |
+|---|---|---|---|
+| `getYTDVariance()` | `src/data/actuals.ts:84` | `actual - budget` | Static mock |
+| `getFinanceSnapshot()` | `src/agents/dataContext.ts:112–113` | `actual - budget` / `÷ budget` | Static mock |
+| `getYTDSummary()` return | `src/lib/queries/actuals.ts:252–253` | `actual - budget` / `÷ budget` | Databricks |
+| `KPICard.tsx` fallback | `src/components/dashboard/KPICard.tsx:60` | `kpi.value - kpi.budget` | Derived at render |
+| `page.tsx` exec summary | `src/app/page.tsx:149–150` | `ytdActual - ytdBudget` / `÷ ytdBudget` | Databricks `byBU` — **4th calculation site** |
+
+#### Headcount
+
+| Consumer | Function | File | Source |
+|---|---|---|---|
+| `buildDashboardKPIs()` | `getHeadcountSummary()` | `src/data/headcount.ts:47` | Static mock (26 rows) |
+| `getFinanceSnapshot()` | `getHeadcountSummary()` | `src/agents/dataContext.ts:157` | Static mock |
+| `buildSnapshotFromDB()` | `getHCSummary(clientId)` | `src/lib/queries/headcount.ts:73` | Databricks `dim_headcount` |
+| `StatsBanner.tsx` | `getHCSummary()` | `src/components/dashboard/StatsBanner.tsx:17` | Databricks |
+| `buildDashboardKPIsFromDB()` | via `getKPISummary()` | `src/lib/queries/kpi.ts:27` | Databricks |
+
+#### External Labor
+
+| Consumer | Function | File | Source |
+|---|---|---|---|
+| `buildDashboardKPIs()` | `getTotalContractorYTDSpend()` | `src/data/externalLabor.ts:188` | Static mock (12 contractors) |
+| `getFinanceSnapshot()` | `getTotalContractorYTDSpend()` | `src/agents/dataContext.ts:142` | Static mock |
+| `buildSnapshotFromDB()` | `contractorsData.reduce(sum)` | `src/agents/dataContext.ts:311` | Databricks `dim_contractor` |
+| `StatsBanner.tsx` | `contractors.reduce(ytdSpend)` | `src/components/dashboard/StatsBanner.tsx:23` | Databricks |
+| `buildDashboardKPIsFromDB()` | via `getKPISummary()` | `src/lib/queries/kpi.ts:31` | Databricks |
+| `riskEngine.ts` | `getOverBudgetContractors()` (static) | `src/lib/riskEngine.ts:4` | **Static mock** |
+
+#### Cloud Spend
+
+| Consumer | Function | File | Source |
+|---|---|---|---|
+| `buildDashboardKPIs()` | `getTotalCloudYTD()` | `src/data/cloudSpend.ts:69` | Static mock (AWS/Azure/GCP) |
+| `getFinanceSnapshot()` | `getTotalCloudYTD()` | `src/agents/dataContext.ts:132` | Static mock |
+| `buildSnapshotFromDB()` | inline `dbQuery` | `src/agents/dataContext.ts:258` | `fact_transactions WHERE category='Cloud'` |
+| `buildDashboardKPIsFromDB()` | `buTotals filter+reduce` | `src/lib/queries/kpi.ts:58–63` | Sum of "Cloud Eng" + "D&A" BU rows — **different approximation** |
+| `StatsBanner.tsx` | `getTotalCloudYTD()` | `src/components/dashboard/StatsBanner.tsx:22` | **Static mock** (bug) |
+| `page.tsx` variance drivers | `getTotalCloudYTD()` | `src/app/page.tsx:79` | **Static mock** (bug) |
+| `riskEngine.ts` | `getTotalCloudYTD()` | `src/lib/riskEngine.ts:24` | **Static mock** (bug) |
+| `src/app/cio/page.tsx` | all cloud functions | `src/app/cio/page.tsx:13` | **Static mock** |
+
+---
+
+### 3. Every Place KPI Math Is Performed
+
+```
+src/data/actuals.ts:77           getYTDActual()                 static sum
+src/data/actuals.ts:80           getYTDBudget()                 static sum
+src/data/actuals.ts:84           getYTDVariance()               actual - budget
+src/data/cloudSpend.ts:69        getTotalCloudYTD()             static sum
+src/data/externalLabor.ts:188    getTotalContractorYTDSpend()   static sum
+src/data/headcount.ts:47         getHeadcountSummary()          static count by status
+
+src/lib/metrics.ts:27–186        buildDashboardKPIs()           all 7 from static (ORPHANED)
+src/lib/metrics.ts:37            fyForecast = ytdActual/5*12
+
+src/lib/queries/actuals.ts:242   getYTDSummary()                SQL SUM on fact_transactions
+src/lib/queries/actuals.ts:252   variance = actual - budget     post-query
+src/lib/queries/actuals.ts:253   variancePct = variance/budget
+src/lib/queries/actuals.ts:131   getByBusinessUnit() variancePct per BU
+src/lib/queries/contractors.ts:21 getContractors() variance = ytdSpend - budget
+src/lib/queries/headcount.ts:73  getHCSummary() fillRate = filled/total
+src/lib/queries/kpi.ts:31        contractorYTDSpend = contractors.reduce()
+src/lib/queries/kpi.ts:58–63     cloudActual = buTotals filter+reduce (BU approximation)
+src/lib/queries/kpi.ts:115       variancePct = ytdVar / ytdBudget
+
+src/agents/dataContext.ts:112–113 ytdVariance, ytdVariancePct   static
+src/agents/dataContext.ts:132–135 cloudVariance, cloudVariancePct static
+src/agents/dataContext.ts:148     totalExcessLabor = reduce()   static
+src/agents/dataContext.ts:158     fillRate = filled/total       static
+src/agents/dataContext.ts:165–166 fullYearBudget/Forecast = ytd*(12/5) — static, hardcoded months=5
+src/agents/dataContext.ts:287–288 same projections in buildSnapshotFromDB — dynamic numMonths
+src/agents/dataContext.ts:311–313 laborYTD, laborVariance from DB contractors
+
+src/app/page.tsx:79–81           cloudActual/Budget/Var         static import (bug)
+src/app/page.tsx:147–150         ytdActual/Budget/Var/Pct       byBU.reduce() re-derivation
+src/components/dashboard/KPICard.tsx:60  varianceDollar fallback: value - budget
+src/components/dashboard/StatsBanner.tsx:23  extLabor = contractors.reduce()
+src/lib/riskEngine.ts:24–26      cloudActual/Budget/Var         static import (bug)
+```
+
+---
+
+### 4. Mismatch Root Cause Summary
+
+**Root Cause A — Incremental migration never completed.**
+DB queries were added in Sprint 2 Phase 1 as an "additive companion" alongside static data. Dashboard was partially migrated; agent routes, executive deck, orchestration, and risk engine were not.
+
+**Root Cause B — Cloud spend table deferred.**
+`dim_cloud_provider` was a listed backlog item. Three different cloud approximations fill the gap, each producing different numbers:
+- Static mock: AWS/Azure/GCP provider rows in `cloudSpend.ts`
+- `buildSnapshotFromDB()`: `fact_transactions WHERE category='Cloud'` proxy
+- `buildDashboardKPIsFromDB()`: sum of "Cloud Engineering" + "Data & Analytics" BU totals
+
+**Root Cause C — Duplicate YTD derivation in page.tsx.**
+`src/app/page.tsx` calls `buildDashboardKPIsFromDB()` for KPI cards but re-derives YTD from `byBU.reduce()` for the executive summary text block (lines 147–150). If the BU query and the YTD summary query return different totals, the KPI card and executive summary will show different numbers on the same page.
+
+**Root Cause D — `src/lib/metrics.ts` is orphaned.**
+`buildDashboardKPIs()` has no callers. `src/app/page.tsx` was updated to call `buildDashboardKPIsFromDB()` and the import was removed; `metrics.ts` was never cleaned up.
+
+**Root Cause E — Agent API route split.**
+`/api/agent` uses `buildSnapshotFromDB()` (DB). `/api/agent/executive` and `/api/agent/orchestrate` use `getFinanceSnapshot()` (static). Same agent produces different numbers depending on which API surface is called.
+
+---
+
+### 5. Refactor Plan — Single Shared KPI Service
+
+**Objective:** `src/lib/services/kpi.service.ts` — one async function, one DB data path, consumed by all surfaces.
+
+#### Step 1 — Create `src/lib/services/kpi.service.ts`
+
+```typescript
+export interface KPIBundle {
+  ytdActual, ytdBudget, ytdVariance, ytdVariancePct,
+  cloudActual, cloudBudget, cloudVariance, cloudVariancePct,  // single source
+  laborActual, laborBudget, laborVariance, overBudgetCount,
+  hcFilled, hcTotal, hcOpen, fillRate,
+  fullYearForecast, fullYearBudget, periodLabel
+}
+export async function getKPIBundle(clientId?: string): Promise<KPIBundle>
+```
+
+Replaces: `buildDashboardKPIs()` (dead), `buildDashboardKPIsFromDB()`, the `byBU.reduce()` re-derivation in `page.tsx:147–150`, and the `getTotalCloudYTD()` direct import in `page.tsx:79`.
+
+#### Step 2 — Standardize Cloud Spend (choose one path)
+
+Short-term: use `fact_transactions WHERE category='Cloud'` proxy everywhere. Remove the BU approximation in `kpi.ts:58–63` and the static import in `StatsBanner`, `page.tsx`, and `riskEngine`.
+
+Long-term: build `dim_cloud_provider` table + `src/lib/queries/cloud.ts`. Expose `cloudByProvider` in `KPIBundle`. Required for CIO dashboard provider chart.
+
+#### Step 3 — Migrate StatsBanner
+
+Replace two imports with `getKPIBundle()`. `StatsBanner` becomes a thin display layer.
+
+```diff
+- import { getTotalCloudYTD } from "@/data/cloudSpend";
+- import { getYTDSummary, getContractors, getHCSummary } from "@/lib/queries";
++ import { getKPIBundle } from "@/lib/services/kpi.service";
+```
+
+#### Step 4 — Migrate riskEngine
+
+Add `generateRiskFlagsFromBundle(bundle: KPIBundle): RiskFlag[]` overload. Update callers to pass the bundle that was already fetched upstream. Eliminates the only remaining static cloud import in the runtime risk path.
+
+#### Step 5 — Align agent API routes
+
+Update `/api/agent/executive` and `/api/agent/orchestrate` to use `buildSnapshotFromDB()` instead of `getFinanceSnapshot()`. All four agent routes then use the same data source.
+
+#### Step 6 — Delete orphaned code
+
+- Delete `src/lib/metrics.ts::buildDashboardKPIs()` (no callers)
+- Remove `src/data/actuals.ts`, `cloudSpend.ts`, `externalLabor.ts`, `headcount.ts` static imports from all runtime paths (retain files for local SQLite fallback if needed)
+
+#### Safe migration order
+
+```
+1. Create kpi.service.ts (additive — no existing code touched)
+2. Update StatsBanner (isolated component, easiest validation)
+3. Update page.tsx (remove getTotalCloudYTD import + byBU.reduce re-derivation)
+4. Update riskEngine (add bundle-accepting overload)
+5. Update /api/agent/executive + /api/agent/orchestrate routes
+6. Delete metrics.ts::buildDashboardKPIs
+7. (Later sprint) Build dim_cloud_provider + cloud.ts query
+```
+
+---
+
+### Files Requiring Changes
+
+| File | Change |
+|---|---|
+| `src/lib/services/kpi.service.ts` | **CREATE** — canonical KPI bundle |
+| `src/components/dashboard/StatsBanner.tsx` | Remove `getTotalCloudYTD` import; use `kpi.service` |
+| `src/app/page.tsx` | Remove lines 18, 79–81, 147–150; read from `kpis[0]` or `KPIBundle` |
+| `src/lib/riskEngine.ts` | Add `generateRiskFlagsFromBundle()` overload |
+| `src/app/api/agent/executive/route.ts` | Switch `getFinanceSnapshot()` → `buildSnapshotFromDB()` |
+| `src/app/api/agent/orchestrate/route.ts` | Switch `getFinanceSnapshot()` → `buildSnapshotFromDB()` |
+| `src/lib/metrics.ts` | Delete `buildDashboardKPIs()` export (orphaned) |
+| `src/lib/queries/kpi.ts` | Remove BU cloud approximation (lines 58–63) |
+
+**No code was modified in this session. Analysis only.**
