@@ -9,11 +9,11 @@ import BudgetVsActualChart from "@/components/charts/BudgetVsActualChart";
 import VarianceTable from "@/components/dashboard/VarianceTable";
 import VarianceDrivers from "@/components/dashboard/VarianceDrivers";
 import type { VarianceDriver } from "@/components/dashboard/VarianceDrivers";
-import { buildDashboardKPIs } from "@/lib/metrics";
-import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine";
+import { generateRiskFlagsAsync, generateRecommendedActions } from "@/lib/riskEngine";
 import {
   getMonthlyTotals, getByBusinessUnit,
   getOverBudgetContractors, getOpenReqs,
+  buildDashboardKPIsFromDB,
 } from "@/lib/queries";
 import { getTotalCloudYTD, getTotalCloudBudgetYTD } from "@/data/cloudSpend";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
@@ -57,14 +57,14 @@ function SectionHeader({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const [monthly, byBU, overConts, allOpenReqs] = await Promise.all([
+  const [monthly, byBU, overConts, allOpenReqs, kpis, risks] = await Promise.all([
     getMonthlyTotals(),
     getByBusinessUnit(),
     getOverBudgetContractors(),
     getOpenReqs(),
+    buildDashboardKPIsFromDB(),
+    generateRiskFlagsAsync(),
   ]);
-  const kpis    = buildDashboardKPIs();
-  const risks   = generateRiskFlags();
   const actions = generateRecommendedActions();
 
   // Risk counts for section label

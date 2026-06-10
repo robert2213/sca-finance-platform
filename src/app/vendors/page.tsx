@@ -5,7 +5,7 @@ import RiskAlerts from "@/components/dashboard/RiskAlerts";
 import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { getVendors } from "@/lib/queries";
-import { generateRiskFlags } from "@/lib/riskEngine";
+import { generateRiskFlagsAsync } from "@/lib/riskEngine";
 import { formatCurrency, formatDate, daysUntil, isExpiringSoon } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -23,13 +23,16 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function VendorsPage() {
-  const vendors    = await getVendors();
+  const [vendors, allRisks] = await Promise.all([
+    getVendors(),
+    generateRiskFlagsAsync(),
+  ]);
   const today      = new Date().toISOString().slice(0, 10);
   const in180      = new Date();
   in180.setDate(in180.getDate() + 180);
   const in180Str   = in180.toISOString().slice(0, 10);
   const expiring   = vendors.filter(v => v.contractEnd && v.contractEnd <= in180Str && v.contractEnd >= today);
-  const procRisks  = generateRiskFlags().filter(r => r.category === "Procurement");
+  const procRisks  = allRisks.filter(r => r.category === "Procurement");
   const totalCommit = vendors.reduce((s, v) => s + v.annualValue, 0);
   const ytdSpend    = vendors.reduce((s, v) => s + v.ytdSpend, 0);
   const highRisk    = vendors.filter(v => v.riskLevel === "High").length;

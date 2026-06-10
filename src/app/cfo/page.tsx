@@ -6,7 +6,7 @@ import RiskAlerts from "@/components/dashboard/RiskAlerts";
 import RecommendedActions from "@/components/dashboard/RecommendedActions";
 import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
-import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine";
+import { generateRiskFlagsAsync, generateRecommendedActions } from "@/lib/riskEngine";
 import { getYTDSummary } from "@/lib/queries";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
@@ -24,9 +24,11 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function CFOPage() {
-  const risks   = generateRiskFlags();
+  const [risks, ytd] = await Promise.all([
+    generateRiskFlagsAsync(),
+    getYTDSummary(),
+  ]);
   const actions = generateRecommendedActions();
-  const ytd     = await getYTDSummary();
   const { actual: ytdActual, budget: ytdBudget, variance: ytdVar, variancePct: ytdVarPct } = ytd;
 
   const kpis: KPI[] = [

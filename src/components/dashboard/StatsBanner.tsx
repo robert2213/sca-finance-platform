@@ -1,9 +1,7 @@
 import { formatCurrency, formatPercent } from "@/lib/formatters";
-import { getYTDActual, getYTDBudget, getYTDVariance } from "@/data/actuals";
 import { getTotalCloudYTD } from "@/data/cloudSpend";
-import { getTotalContractorYTDSpend } from "@/data/externalLabor";
-import { getHeadcountSummary } from "@/data/headcount";
-import { generateRiskFlags } from "@/lib/riskEngine";
+import { getYTDSummary, getContractors, getHCSummary } from "@/lib/queries";
+import { generateRiskFlagsAsync } from "@/lib/riskEngine";
 import clsx from "clsx";
 
 interface StatItem {
@@ -13,23 +11,24 @@ interface StatItem {
   status: "good" | "warn" | "bad" | "neutral";
 }
 
-export default function StatsBanner() {
-  const ytdActual  = getYTDActual();
-  const ytdBudget  = getYTDBudget();
-  const ytdVar     = getYTDVariance();
-  const ytdVarPct  = ytdBudget > 0 ? ytdVar / ytdBudget : 0;
-  const cloudYTD   = getTotalCloudYTD();
-  const extLabor   = getTotalContractorYTDSpend();
-  const hc         = getHeadcountSummary();
-  const risks      = generateRiskFlags();
-  const critCount  = risks.filter(r => r.severity === "critical").length;
+export default async function StatsBanner() {
+  const [ytd, contractors, hc, risks] = await Promise.all([
+    getYTDSummary(),
+    getContractors(),
+    getHCSummary(),
+    generateRiskFlagsAsync(),
+  ]);
+
+  const cloudYTD  = getTotalCloudYTD();
+  const extLabor  = contractors.reduce((s, c) => s + c.ytdSpend, 0);
+  const critCount = risks.filter(r => r.severity === "critical").length;
 
   const stats: StatItem[] = [
     {
       label:  "YTD IT Spend",
-      value:  formatCurrency(ytdActual, true),
-      sub:    `${ytdVar > 0 ? "+" : ""}${formatPercent(ytdVarPct)} vs. budget`,
-      status: ytdVar > 0 ? "bad" : "good",
+      value:  formatCurrency(ytd.actual, true),
+      sub:    `${ytd.variance > 0 ? "+" : ""}${formatPercent(ytd.variancePct)} vs. budget`,
+      status: ytd.variance > 0 ? "bad" : "good",
     },
     {
       label:  "Cloud Spend",
@@ -40,7 +39,7 @@ export default function StatsBanner() {
     {
       label:  "External Labor",
       value:  formatCurrency(extLabor, true),
-      sub:    "12 contractors YTD",
+      sub:    `${contractors.length} contractors YTD`,
       status: "warn",
     },
     {
