@@ -12,7 +12,8 @@
 
 import type { AgentId, AgentResponse } from "@/types/finance";
 import { dispatchAgent } from "./agentEngine";
-import { getFinanceSnapshot } from "./dataContext";
+import { resolveSnapshot } from "./dataContext";
+import type { FinanceSnapshot } from "./dataContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,11 +96,15 @@ function detectConflicts(findings: AgentFinding[]): string[] {
 
 // ─── Response synthesizer ─────────────────────────────────────────────────────
 
-function synthesizeFindings(question: string, findings: AgentFinding[]): string {
+function synthesizeFindings(
+  question: string,
+  findings: AgentFinding[],
+  snapshot: FinanceSnapshot
+): string {
   if (findings.length === 0) return "No agent findings to synthesize.";
   if (findings.length === 1) return findings[0].answer;
 
-  const s = getFinanceSnapshot();
+  const s = snapshot;
 
   const agentList = findings.map(f => f.agentName).join(", ");
   const topKeyPoints = findings
@@ -157,9 +162,14 @@ function rollupConfidence(findings: AgentFinding[]): "High" | "Medium" | "Low" {
 export async function orchestrate(
   question: string,
   orchestrationType: OrchestrationType = "full-board",
-  customAgents?: AgentId[]
+  customAgents?: AgentId[],
+  snapshotOverride?: FinanceSnapshot
 ): Promise<OrchestrationResult> {
   const startMs = Date.now();
+
+  // Resolve the Databricks-backed snapshot once (falls back to static on error).
+  // Shared by every mock agent dispatch and by the synthesis summary.
+  const snapshot = snapshotOverride ?? await resolveSnapshot();
 
   // Determine which agents to involve
   const agentIds: AgentId[] =
@@ -170,7 +180,7 @@ export async function orchestrate(
   // Run all agents in parallel
   const findingPromises = agentIds.map(async (agentId): Promise<AgentFinding> => {
     // In mock mode, dispatchAgent is synchronous — wrap in Promise for uniform handling
-    const response = await Promise.resolve(dispatchAgent(agentId, question));
+    const response = await Promise.resolve(dispatchAgent(agentId, question, [], snapshot));
     return {
       agentId,
       agentName: AGENT_NAMES[agentId] ?? agentId,
@@ -184,7 +194,7 @@ export async function orchestrate(
   const findings = await Promise.all(findingPromises);
 
   const conflicts      = detectConflicts(findings);
-  const synthesis      = synthesizeFindings(question, findings);
+  const synthesis      = synthesizeFindings(question, findings, snapshot);
   const combinedActions = mergeActions(findings);
   const confidence     = rollupConfidence(findings);
 

@@ -22,7 +22,8 @@ import type { OrchestrationType, AgentFinding, OrchestrationResult } from "@/age
 import {
   orchestrate, ORCHESTRATION_SETS, AGENT_NAMES,
 } from "@/agents/orchestrator";
-import { getFinanceSnapshot } from "@/agents/dataContext";
+import { getFinanceSnapshot, resolveSnapshot } from "@/agents/dataContext";
+import defaultConfig from "@/config/client.config";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 
@@ -86,7 +87,8 @@ export async function POST(request: NextRequest) {
     if (apiKey) {
       // ── Live Claude path: run all agents in parallel ──────────────────────
       const client   = new Anthropic({ apiKey });
-      const snapshot = getFinanceSnapshot();
+      // Databricks-backed snapshot (falls back to static getFinanceSnapshot() on error/missing env)
+      const snapshot = await resolveSnapshot(defaultConfig.clientId);
 
       const agentIds: AgentId[] =
         orchestrationType === "custom" && customAgents?.length
@@ -110,8 +112,9 @@ export async function POST(request: NextRequest) {
           throw new Error("All Claude agents failed");
         }
 
-        // Use the orchestrator's synthesis logic with live findings
-        const mockResult = await orchestrate(question, orchestrationType, customAgents);
+        // Use the orchestrator's synthesis logic with live findings,
+        // reusing the already-resolved DB snapshot so the summary matches.
+        const mockResult = await orchestrate(question, orchestrationType, customAgents, snapshot);
 
         // Override mock findings with Claude's live findings
         const result: OrchestrationResult = {

@@ -11,7 +11,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { getFinanceSnapshot } from "@/agents/dataContext";
+import { getFinanceSnapshot, resolveSnapshot } from "@/agents/dataContext";
+import defaultConfig from "@/config/client.config";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
@@ -346,7 +347,8 @@ function parseDeckResponse(
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(_request: NextRequest) {
-  const snapshot = getFinanceSnapshot();
+  // Databricks-backed snapshot (falls back to static getFinanceSnapshot() on error/missing env)
+  const snapshot = await resolveSnapshot(defaultConfig.clientId);
   const apiKey   = process.env.ANTHROPIC_API_KEY;
 
   if (apiKey) {

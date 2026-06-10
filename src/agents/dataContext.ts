@@ -377,3 +377,27 @@ export async function buildSnapshotFromDB(
     fmt: formatCurrency, pct: formatPercent, dt: formatDate, daysUntil,
   };
 }
+
+/**
+ * Shared snapshot resolver used by every agent API route.
+ *
+ * Returns the Databricks-backed snapshot when DATABRICKS_HOST is set, and
+ * falls back to the static getFinanceSnapshot() if the env is absent or the
+ * DB query throws. This is the single place that decides "live vs static" so
+ * /api/agent, /api/agent/executive, and /api/agent/orchestrate stay aligned.
+ */
+export async function resolveSnapshot(
+  clientId: string = "demo-client"
+): Promise<FinanceSnapshot> {
+  if (process.env.DATABRICKS_HOST) {
+    try {
+      return await buildSnapshotFromDB(clientId);
+    } catch (err) {
+      console.error(
+        "[resolveSnapshot] DB snapshot failed, falling back to static getFinanceSnapshot():",
+        err
+      );
+    }
+  }
+  return getFinanceSnapshot();
+}
