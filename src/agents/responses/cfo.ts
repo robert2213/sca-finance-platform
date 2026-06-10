@@ -8,6 +8,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -461,43 +462,6 @@ With ${s.hcSummary.filled + 12} active contractors and FTEs supporting an estima
     key: "default",
     keywords: [],
     weight: 0,
-    handler(ctx) {
-      const { snapshot: s } = ctx;
-      const { fmt, pct } = s;
-
-      if (ctx.outputMode === 'question_answering') {
-        return {
-          answer: `YTD IT spend is ${fmt(s.ytdActual)} — tracking ${pct(Math.abs(s.ytdVariancePct))} unfavorable vs. budget. Cloud and external labor are the primary drivers. AWS contract expires in ${s.daysUntil("2026-06-30")} days. What do you want to look at?`,
-          keyPoints: [],
-          riskFlags: [],
-          actions: [],
-        };
-      }
-
-      return {
-        answer: `**CFO Agent — Ready to Help**
-
-I can assist with any of the following areas:
-
-- **Executive Summary**: Full YTD financial performance narrative
-- **Risk Assessment**: Prioritized risk flags with dollar impact
-- **Cost Opportunities**: Savings identification across cloud, labor, and SaaS
-- **Board Narratives**: Presentation-ready talking points and framing
-- **Month Close**: May 2026 detailed performance review
-- **Full-Year Forecast**: Revised outlook with scenario analysis
-- **Benchmarking**: Industry comparisons and cost efficiency metrics
-
-**Current Headlines**
-YTD IT spend of ${fmt(s.ytdActual)} is tracking ${pct(Math.abs(s.ytdVariancePct))} unfavorable vs. budget. Cloud and external labor are the primary drivers. AWS contract expires in ${s.daysUntil("2026-06-30")} days.
-
-What would you like me to analyze?`,
-        keyPoints: [
-          `YTD spend: ${fmt(s.ytdActual)} | Variance: ${fmt(s.ytdVariance)} (${pct(s.ytdVariancePct)})`,
-          "Ask me about risks, opportunities, board narrative, or the full-year forecast",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];

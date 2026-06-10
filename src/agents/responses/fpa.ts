@@ -7,6 +7,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -434,17 +435,6 @@ ${s.contractors.filter(c => c.status === "Active" || c.status === "Over Budget")
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
-      const { fmt, pct } = s;
-      return {
-        answer: `YTD IT spend is ${fmt(s.ytdActual)} — ${fmt(Math.abs(s.ytdVariance))} ${s.ytdVariance > 0 ? 'over' : 'under'} budget (${pct(s.ytdVariancePct)}). Top driver: ${s.topOverBU?.bu ?? "Cloud Engineering"} at +${fmt(s.topOverBU?.variance ?? 0)}. Full-year forecast: ${fmt(s.fullYearForecast)} vs. ${fmt(s.fullYearBudget)} budget. What would you like me to analyze?`,
-        keyPoints: [
-          `YTD variance: ${fmt(s.ytdVariance)} unfavorable`,
-          "Ask me about variance drivers, forecast methodology, or cost center detail",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];

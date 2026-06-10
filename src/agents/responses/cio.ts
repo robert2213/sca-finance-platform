@@ -7,6 +7,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -260,32 +261,6 @@ IT spend is growing at approximately 8% year-over-year, above the company's reve
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
-      const { fmt, pct } = s;
-      return {
-        answer: `**CIO Finance Partner — Ready to Help**
-
-I create CIO-ready financial analysis and executive briefings grounded in IT spend data. Here's a quick snapshot:
-
-**IT Financial Headline**
-- Total YTD IT spend: **${fmt(s.ytdActual)}** — ${pct(Math.abs(s.ytdVariancePct))} ${s.ytdVariance > 0 ? "over" : "under"} budget
-- Cloud spend: **${fmt(s.cloudYTD)}** (${pct(s.cloudYTD / s.ytdActual)} of IT) — ${pct(s.cloudVariancePct)} over budget
-- Headcount: ${s.hcSummary.filled}/${s.hcSummary.total} filled (${(s.fillRate * 100).toFixed(0)}%)
-
-**I can help with:**
-- **Cloud spend analysis**: Provider-level breakdown, FinOps opportunities
-- **CIO talking points**: Board and leadership presentation narratives
-- **FinOps strategy**: Cloud optimization program, Reserved Instances, slot commitments
-- **IT investment story**: Total spend portfolio, ROI linkage, strategic vs. operational breakdown
-
-What would you like me to prepare?`,
-        keyPoints: [
-          `YTD IT spend: ${fmt(s.ytdActual)} | Cloud: ${fmt(s.cloudYTD)} | ${(s.fillRate * 100).toFixed(0)}% HC filled`,
-          "Ask me for CIO talking points, cloud spend analysis, or a FinOps strategy",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];

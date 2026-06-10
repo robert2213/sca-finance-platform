@@ -7,6 +7,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -248,32 +249,6 @@ Current on-leave employee (Sr. Enterprise Architect, EA team) has been out since
     key: "default",
     keywords: [],
     weight: 0,
-    handler({ snapshot: s }) {
-      const { fmt } = s;
-      return {
-        answer: `**Headcount Agent — Ready to Help**
-
-I analyze workforce data, open requisitions, and salary budgeting. Current snapshot:
-
-- **Total positions**: ${s.hcSummary.total} approved
-- **Filled**: ${s.hcSummary.filled} (${(s.fillRate * 100).toFixed(0)}% fill rate)
-- **Open reqs**: ${s.hcSummary.open} | **Pending offers**: ${s.hcSummary.pendingOffer}
-- **Annual salary budget**: ${fmt(s.salaryBudget)}
-
-**I can help you with:**
-- Open requisition analysis and hiring priority recommendations
-- Fill rate breakdown by business unit
-- Salary budget tracking and open req financial impact
-- Backfill decisions and headcount movement analysis
-
-What would you like to explore?`,
-        keyPoints: [
-          `Fill rate: ${(s.fillRate * 100).toFixed(0)}% | ${s.hcSummary.open} open reqs | ${fmt(s.salaryBudget)} annual salary budget`,
-          "Ask me about open reqs, fill rates, salary budgets, or backfill decisions",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];

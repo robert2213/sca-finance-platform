@@ -7,6 +7,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -302,43 +303,6 @@ Both contractors should complete a knowledge transfer package (system documentat
     key: "default",
     keywords: [],
     weight: 0,
-    handler(ctx) {
-      const { snapshot: s } = ctx;
-      const { fmt, pct } = s;
-
-      if (ctx.outputMode === 'question_answering') {
-        return {
-          answer: `${s.contractors.filter(c => c.status !== "On Hold").length} active contractors, ${fmt(s.laborYTD)} spent YTD vs. ${fmt(s.laborBudget)} budget. ${s.overBudgetContractors.length} over budget (${fmt(s.totalExcessLabor)} excess), ${s.endingSoonContractors.length} engagements ending this quarter. What do you want to dig into?`,
-          keyPoints: [],
-          riskFlags: [],
-          actions: [],
-        };
-      }
-
-      return {
-        answer: `**External Labor Agent — Ready to Help**
-
-I track contractor spend, SOW compliance, and workforce cost management. Current status:
-
-- **Active contractors**: ${s.contractors.filter(c => c.status !== "On Hold").length} engagements
-- **YTD spend**: ${fmt(s.laborYTD)} vs. budget ${fmt(s.laborBudget)} — ${pct(s.laborVariance / s.laborBudget)} variance
-- **Over budget**: ${s.overBudgetContractors.length} contractors — ${fmt(s.totalExcessLabor)} total excess
-- **Ending this quarter**: ${s.endingSoonContractors.length} engagements require extension decisions
-
-**Areas I can help with:**
-- Over-budget analysis and SOW compliance
-- Burn rate and full-year projection
-- Contractor-to-FTE conversion economics
-- Ending engagement decisions and knowledge transfer
-
-What would you like to analyze?`,
-        keyPoints: [
-          `YTD contractor spend: ${fmt(s.laborYTD)} — ${fmt(s.laborVariance)} over budget`,
-          "Ask me about over-budget contractors, burn rate, conversion economics, or ending engagements",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];

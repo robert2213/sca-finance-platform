@@ -7,6 +7,7 @@
 
 import type { AgentResponse } from "@/types/finance";
 import type { ConversationContext } from "../agentEngine";
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
 
 type Route = {
   key: string;
@@ -288,39 +289,6 @@ ${s.expiringVendors180.slice(0, 5).map(v => `- ${v.name}: ${fmt(v.annualValue)}/
     key: "default",
     keywords: [],
     weight: 0,
-    handler(ctx) {
-      const { snapshot: s } = ctx;
-      const { fmt } = s;
-
-      if (ctx.outputMode === 'question_answering') {
-        return {
-          answer: `AWS contract expires in ${s.daysUntil("2026-06-30")} days — EDP negotiation window is open. ${s.expiringVendors180.length} contracts in the renewal pipeline, ${s.expiringVendors180.filter(v => !v.autoRenew).length} without auto-renew. What do you want to look at?`,
-          keyPoints: [],
-          riskFlags: [],
-          actions: [],
-        };
-      }
-
-      return {
-        answer: `**Procurement Agent — Ready to Help**
-
-I manage vendor relationships, contracts, and spend analysis. Here's what I can analyze:
-
-- **Contract Expiry Pipeline**: ${s.expiringVendors180.length} contracts expiring within 180 days
-- **Spend Concentration**: Risk assessment across ${12} active vendor relationships
-- **Negotiation Strategy**: Tactics and leverage analysis for upcoming renewals
-- **Vendor Portfolio Overview**: Total commitment of ${fmt(s.vendorCommitment)} across all categories
-
-**Most Urgent Item**: AWS contract expires in ${s.daysUntil("2026-06-30")} days — EDP negotiation window is open now.
-
-What would you like to explore?`,
-        keyPoints: [
-          `${s.expiringVendors90.length} contracts in critical expiry zone — immediate action needed`,
-          "Ask me about specific vendor negotiations, concentration risk, or the renewal pipeline",
-        ],
-        riskFlags: [],
-        actions: [],
-      };
-    },
+    handler(ctx) { return buildDefaultAnswer(ctx); },
   },
 ];
