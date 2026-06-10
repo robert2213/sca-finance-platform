@@ -5826,3 +5826,61 @@ In `dataContext.ts`, convert `getFinanceSnapshot()` to detect whether `DATABRICK
 | `src/agents/dataContext.ts:230–376` | `buildSnapshotFromDB()` — async, reads Databricks |
 | `src/data/actuals.ts:76–86` | `getYTDActual()` / `getYTDBudget()` — source of $14,598,000 |
 | `src/lib/queries/actuals.ts:253–277` | `getYTDSummary()` — source of $21,389,305 from Databricks |
+
+---
+
+## Session 8 — Agent DB Snapshot Alignment
+
+**Date:** 2026-06-10
+**Status:** Complete. Committed `13903b4`.
+**Trigger:** Session 7 traced the $14,598,000 vs $21,389,305 mismatch. This session implements Option B from that analysis.
+
+### What was done
+
+Built `buildSnapshotFromDB()` once per request in `POST /api/agent` and threaded the result into every execution path — guard pre-check, Claude live path, and mock fallback. Added optional `snapshotOverride` parameter to `dispatchAgent()` so callers can inject a pre-built snapshot. Also closed the three unbound DB queries in `buildSnapshotFromDB()` that were returning multi-year data (open item from Session 6).
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/agents/agentEngine.ts` | Added `import type { FinanceSnapshot }`. Added optional `snapshotOverride?: FinanceSnapshot` as 4th param to `dispatchAgent()`. Changed `const snapshot = getFinanceSnapshot()` → `const snapshot = snapshotOverride ?? getFinanceSnapshot()`. All guard builders and keyword routes use the passed snapshot automatically via `ctx.snapshot`. |
+| `src/agents/dataContext.ts` | Added `YTD_START`, `YTD_CUTOFF` to import from `@/lib/queries/actuals`. Fixed three unbound queries in `buildSnapshotFromDB()`: `getMonthlyTotals(2026, clientId)` (was `undefined`), `getByBusinessUnit(YTD_CUTOFF, clientId)` (was `undefined`), and the Cloud proxy SQL now includes `AND period >= ? AND period <= ?`. |
+| `src/app/api/agent/route.ts` | Added `getFinanceSnapshot` + `FinanceSnapshot` to imports. Added `snapshot: FinanceSnapshot` param to `callClaude()` (with retry pass-through). Removed `buildSnapshotFromDB()` call from inside `callClaude()`. In `POST()`: added snapshot-build block before `hasApiKey` check — tries `buildSnapshotFromDB()` when `DATABRICKS_HOST` is set, falls back to `getFinanceSnapshot()` on error or missing env. Passes `snapshot` to all three `dispatchAgent()` / `callClaude()` calls. |
+
+### Before / After
+
+| Path | Before | After |
+|---|---|---|
+| Mock (no API key) | `getFinanceSnapshot()` → $14,598,000 | `buildSnapshotFromDB()` → $21,389,305 |
+| Guard (API key + temporal Q) | `getFinanceSnapshot()` → $14,598,000 | `buildSnapshotFromDB()` → $21,389,305 |
+| Live Claude (API key + general Q) | `buildSnapshotFromDB()` → $21,389,305 (but called twice) | `buildSnapshotFromDB()` → $21,389,305 (called once) |
+| DB unavailable / error | N/A | `getFinanceSnapshot()` → $14,598,000 (graceful fallback) |
+
+### Validation results
+
+```
+TypeScript: 0 errors
+Build: ✓ 29/29 pages (commit 13903b4)
+```
+
+### New execution path (post-fix)
+
+```
+AgentWorkspace.tsx:351  fetch("/api/agent", POST)
+  → route.ts            buildSnapshotFromDB()   ← ONCE, shared
+      → route.ts        dispatchAgent(..., snapshot)   [guard pre-check]
+          → agentEngine.ts  snapshot = snapshotOverride  ← Databricks data
+      → route.ts        callClaude(..., snapshot)
+          → route.ts    buildSystemPrompt(agentId, snapshot, question)  ← Databricks data
+      → route.ts        dispatchAgent(..., snapshot)   [mock fallback]
+          → agentEngine.ts  snapshot = snapshotOverride  ← Databricks data
+```
+
+### Remaining open items
+
+| Item | Notes |
+|---|---|
+| `buildSnapshotFromDB` BU query period bounds | Fixed in this session (was deferred from Session 6) |
+| Add `client_id` to SQLite CREATE TABLE | `AND client_id = ?` queries fail on local SQLite — deferred |
+| Clerk auth | Sprint 3 — needed for multi-tenant `clientId` from session |
+| Executive deck UI | JSON endpoint ready at `/api/agent/executive`; no UI component yet |
