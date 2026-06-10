@@ -2686,3 +2686,380 @@ All three commits: `npx tsc --noEmit` → **0 errors**.
 3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars
 4. **Vendor variance mock template** — procurement mock content gap (open from Session D)
 5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
+
+---
+
+## Session Update — June 9, 2026 (Session L)
+
+### Sprint: Role-Based Analysis Diagnostic
+
+**No files were modified this session.** Read-only architectural investigation into why agents still behave like keyword-driven scripts despite the response engineering added in Sessions C–K.
+
+---
+
+### Core Finding
+
+**The mock path is the entire user experience.** `ANTHROPIC_API_KEY` has never been configured (deferred item #1 since Session B). Every response the user sees comes from the keyword route libraries in `src/agents/responses/*.ts`. All the work in Sessions C–K — the RESPONSE RULES, questionType-aware format blocks, voice profiles in context files, temporal scoping, the system prompt builder — executes only when Claude is active. None of it reaches the user.
+
+---
+
+### Two-Path Architecture Review
+
+| Path | Active? | What runs |
+|---|---|---|
+| **Live path** (API key present) | ❌ Not configured | `callClaude()` → `buildSystemPrompt()` → Claude with voice rules, RESPONSE RULES, temporal scoping, role context |
+| **Mock path** (no API key) | ✅ All user sessions | `dispatchAgent()` → keyword scoring → route handlers in `responses/*.ts` |
+
+The live path's guard pre-check (Session J) correctly fires for `*-guard` routes. Non-guard questions fall through to Claude — but only when the API key is present.
+
+---
+
+### Where Scripted Behavior Is Dominant (Mock Path)
+
+**Default handlers explicitly violate the principles:**
+
+| File | Line | Problem |
+|---|---|---|
+| `src/agents/responses/cfo.ts` | 492 | `"What would you like me to analyze?"` — violates principle #5 |
+| `src/agents/responses/fpa.ts` | 440 | `"What would you like me to analyze?"` — violates principle #5 |
+| `src/agents/responses/externalLabor.ts` | 330 | Lists capabilities instead of answering |
+| `src/agents/responses/procurement.ts` | 313 | `"What would you like to explore?"` |
+
+**Hardcoded values not derived from snapshot data:**
+
+- `cfo.ts:165` — `285_000`, `18_000`, `9_000` (SaaS rationalization figures)
+- `cfo.ts:375–377` — `1_950_000`, `2_010_000`, `60_000` (Software & SaaS forecast lines)
+- `externalLabor.ts:279` — `"Marcus Webb"` and `"Ryan Kowalski"` named directly, not from contractor data
+- `fpa.ts:300` — `"Cloud has grown 35%"` is a hardcoded narrative string
+
+**Agent role differentiation is absent in mock mode.** The voice rules in `cfo.agent.ts` and `fpa.agent.ts` (the "Strategic, decisive, board-level" and "Analytical, variance-driven" profiles) only appear in context files that feed the system prompt builder. They never touch the mock path. A CFO and an FP&A handler answering the same question produce structurally identical prose.
+
+**`finance-bp` and `validation` have no mock routes.** `agentEngine.ts:67–68` maps them to `fpaResponses` and `cfoResponses` respectively — a question to the Finance Business Partner returns FP&A template text.
+
+---
+
+### What the Live Path Does Right
+
+`src/lib/ai/system-prompt.builder.ts` is architecturally correct:
+- Question type detected (`FACTUAL / ANALYTICAL / COMPARATIVE / SUMMARY / REPORT`)
+- Data block scoped to intent + temporal horizon only
+- 9 non-negotiable RESPONSE RULES injected verbatim
+- Role-specific voice rules from context files included
+- Few-shot correct/wrong examples per question type
+- `buildResponseFormat()` enforces `keyPoints=[]`, `actions=[]` for FACTUAL questions
+
+This will produce near-correct behavior once the API key is configured and `AgentChatPanel.tsx` is wired to `/api/agent`.
+
+---
+
+### Proposed Design: Role-Based Analysis Engine (Mock Path Replacement)
+
+For the mock path to behave like the live path — answering the question asked, from the agent's role perspective, without canned report sections — a dynamic analysis layer is needed to replace the keyword router's standard dispatch block (`agentEngine.ts:578–624`). The temporal guards stay unchanged.
+
+**New files:**
+
+| File | Purpose |
+|---|---|
+| `src/lib/ai/mock-analysis-engine.ts` | Core dynamic responder: takes `agentId`, `question`, `snapshot`, `intent`, `temporal`; returns `AgentResponse` without keyword routing |
+| `src/lib/agents/role-perspectives.ts` | Role lens config: what each agent leads with, what it skips, how it frames findings |
+
+**Approach:**
+1. Use `classifyIntent(question)` (already in `intent-classifier.ts`) instead of keyword scoring
+2. Use `buildDataBlock()` (already in `system-prompt.builder.ts`) to retrieve scoped snapshot data
+3. Apply role lens to determine which facts get the first sentence
+4. Return a question-type-calibrated response: 1–3 sentences for FACTUAL, analytical paragraphs for ANALYTICAL, structured content only for SUMMARY/REPORT
+
+**Minimal slice (lowest risk, highest immediate impact):**
+
+Replace the `default` route handlers in all six response files with a single `buildDefaultAnswer(ctx)` function in `agentEngine.ts`:
+1. Computes `intent = classifyIntent(ctx.question)` and `temporal = extractTemporalIntent(ctx.question)`
+2. Selects the 2–3 most relevant snapshot fields based on `agentId` (minimal role lens)
+3. Returns a 2–3 sentence answer from data — never asks "What would you like me to analyze?"
+4. Ends with at most one specific, data-grounded follow-up offer
+
+This change is self-contained, does not affect temporal guards, and eliminates the most visible scripted failure mode.
+
+---
+
+### Priority Stack (consolidated)
+
+| Priority | Action | Rationale |
+|---|---|---|
+| **1** | **Add `ANTHROPIC_API_KEY`** to `.env.local` + Vercel env vars | Activates the live path — the biggest single quality improvement available, no code changes required |
+| **2** | **Wire `AgentChatPanel.tsx` to `/api/agent`** | Currently bypasses the entire pipeline (open since Session G); required for Claude + guards to actually execute |
+| **3** | **`git push origin main`** | Deploys Sessions H–K fixes to Vercel |
+| **4** | Replace `default` route handlers with `buildDefaultAnswer(ctx)` | Eliminates "What would you like me to analyze?" from all agents |
+| **5** | Build `mock-analysis-engine.ts` + `role-perspectives.ts` | Full dynamic analysis layer for mock path |
+| **6** | Vendor variance mock template — procurement mock content gap (open from Session D) |
+| **7** | Clerk auth decision — Next.js 15 upgrade or Clerk v4/v5 |
+
+**Items 1–3 together, with no code changes to agent logic, will visibly improve agent response quality more than any mock path refactor.** The live Claude path governed by RESPONSE RULES and voice profiles is already built and correct. It just isn't running.
+
+---
+
+### Files Involved (if proceeding with mock analysis engine)
+
+| File | Change type |
+|---|---|
+| `src/agents/agentEngine.ts` | Modify — replace keyword routing block (lines 578–624) with `roleAnalysisEngine(ctx)`. Keep all temporal guards. |
+| `src/agents/responses/cfo.ts` | Modify — remove `default` handler; simplify or retain as last-resort reference |
+| `src/agents/responses/fpa.ts` | Modify — same pattern |
+| `src/agents/responses/procurement.ts` | Modify — same |
+| `src/agents/responses/externalLabor.ts` | Modify — same |
+| `src/agents/responses/headcount.ts` | Modify — same |
+| `src/agents/responses/cio.ts` | Modify — same |
+| `src/lib/ai/mock-analysis-engine.ts` | Create new |
+| `src/lib/agents/role-perspectives.ts` | Create new |
+| `src/lib/ai/system-prompt.builder.ts` | No change — extract `buildDataBlock` as shared import |
+| `src/lib/agents/contexts/*.ts` | Read only — voice rules surfaced to mock analysis engine |
+
+---
+
+### Risks
+
+**Quality regression on covered routes.** The current route handlers, while scripted, produce accurate detailed output for specific intents (e.g., the procurement `negotiation` handler has real negotiation tactics). Replacing them with the dynamic engine will produce thinner answers for those specific questions until the engine matures. Mitigation: keep route handlers as a ranked fallback when intent confidence is high and a matching route exists; use the dynamic engine when there's no match or when the handler is the default.
+
+**No prose generation without Claude.** Without the API key, generating naturally professional prose from structured data has a ceiling. The analysis engine bridges to an acceptable level but is not a permanent replacement for the live Claude path.
+
+**Intent classifier coverage gaps.** Questions that don't match known intents (`GENERAL_FINANCIAL_QA`) will get the YTD core data block and a thin answer. Mitigation: never return a capability menu; always attempt to answer from data.
+
+---
+
+### Next Session Priorities
+
+1. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — highest priority, no code required
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open from Session G, required for live path + guards to execute
+3. **`git push origin main`** — deploy Sessions H–K fixes
+4. **Replace default handlers** with `buildDefaultAnswer(ctx)` — minimal mock path improvement
+5. **Vendor variance mock template** — procurement mock content gap (open from Session D)
+
+---
+
+## Session Update — June 9, 2026 (Session M)
+
+### Sprint: buildDefaultAnswer utility created (partial)
+
+One file created. Default handlers not yet wired — session ended before that step.
+
+---
+
+### What Changed
+
+**New file created:**
+
+`src/agents/responses/buildDefaultAnswer.ts` — role-aware default response function. Returns a direct, data-grounded answer for each of the 6 agent roles (CFO/validation, FP&A/finance-bp, procurement, externalLabor, headcount, CIO). No capability menus. No "What would you like me to analyze?" Does not import from any file that imports response libraries, so no circular dependency.
+
+**Not yet done (interrupted):**
+
+The 6 response files (`cfo.ts`, `fpa.ts`, `procurement.ts`, `externalLabor.ts`, `headcount.ts`, `cio.ts`) still have their old default handlers. Each needs its `default` route `handler` body replaced with:
+
+```typescript
+handler(ctx) {
+  return buildDefaultAnswer(ctx);
+},
+```
+
+And each file needs the import added at the top:
+
+```typescript
+import { buildDefaultAnswer } from "./buildDefaultAnswer";
+```
+
+---
+
+### Next Session Priorities
+
+1. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — no code required, highest impact
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open from Session G
+3. **`git push origin main`** — deploy Sessions H–K fixes
+4. **Wire 6 default handlers** to call `buildDefaultAnswer(ctx)` — `buildDefaultAnswer.ts` already exists, just needs the 6 handler replacements and imports
+5. **Vendor variance mock template** — procurement mock content gap (open from Session D)
+
+---
+
+## Session Update — June 9, 2026 (Session N)
+
+### Sprint: Phase 1 — Role-Based Analysis Engine
+
+**Goal:** Replace all six agent `default` route handlers with a dynamic analysis engine that reads the snapshot, detects material findings, applies per-role perspective, and returns a natural prose response. No capability menus. No "What would you like me to analyze?" No unsolicited report sections.
+
+This completed the work Session L proposed and Session M left half-finished.
+
+---
+
+### What Was Built
+
+#### New file: `src/lib/ai/role-analysis-engine.ts` (~630 lines)
+
+Core engine. Entry point: `buildRoleAnalysisResponse(ctx: ConversationContext): AgentResponse`.
+
+**Pipeline:**
+1. Load agent's `RolePerspective` from `role-perspectives.ts` (voice, thresholds, `analysisPriorities` order)
+2. Run all 8 detectors against snapshot; each returns `RawFinding | null`
+3. Score findings: `materiality + priorityScore(domain)` where `priorityScore = (analysisPriorities.length - idx) * 10`
+4. Take top 2 findings; frame each in the agent's voice using the `AgentVoice` enum
+5. Assemble 2–4 sentence prose answer + one contextual follow-up offer
+6. Return `{ answer, keyPoints, riskFlags: [], actions: [] }` — no unsolicited sections
+
+**8 detectors:**
+
+| Detector | Domain | What it checks |
+|---|---|---|
+| `detectVendorUrgency` | `vendor_urgency` | Vendors expiring within `contractDaysUrgent` days without auto-renew |
+| `detectBudgetVariance` | `budget_variance` | YTD variance pct vs. `budgetVariancePct` threshold; top over-budget BU |
+| `detectForecastTrajectory` | `forecast_trajectory` | Full-year forecast overrun pct vs. `forecastOverrunPct` threshold |
+| `detectCloudSpend` | `cloud_spend` | Cloud variance pct vs. `cloudVariancePct` threshold; top provider by spend |
+| `detectContractorCompliance` | `contractor_compliance` | Over-budget contractors; total excess labor |
+| `detectHeadcountGaps` | `headcount_gaps` | Fill rate vs. `fillRateGap` threshold; worst-performing BU |
+| `detectVendorConcentration` | `vendor_concentration` | Top vendor as share of total spend vs. 0.25 cap |
+| `detectLaborEfficiency` | `labor_efficiency` | Labor overrun pct vs. `laborOverrunPct` threshold |
+
+**5 voice types and their sentence templates:**
+
+| Voice | Used by | Framing style |
+|---|---|---|
+| `strategic` | CFO | Board-level, risk/decision-oriented |
+| `analytical` | FP&A | Variance-first, driver-connected |
+| `operational_sourcing` | Procurement | Vendor-named, contract-dollar quantified |
+| `operational_labor` | External Labor | SOW budget, contractor burn rate |
+| `operational_workforce` | Headcount | Fill rate + salary cost dual-lens |
+| `technical` | CIO | Cloud infrastructure, FinOps framing |
+
+---
+
+#### New file: `src/lib/agents/role-perspectives.ts` (~170 lines)
+
+Per-agent config: `analysisPriorities` (ordered list of domains), detection thresholds, and voice.
+
+| Agent | Voice | Budget threshold | Cloud threshold | Priority order (first 2) |
+|---|---|---|---|---|
+| `cfo` | `strategic` | 3% | 8% | `vendor_urgency`, `budget_variance` |
+| `fpa` | `analytical` | 2% | 5% | `budget_variance`, `forecast_trajectory` |
+| `procurement` | `operational_sourcing` | 4% | 10% | `vendor_urgency`, `vendor_concentration` |
+| `external-labor` | `operational_labor` | 4% | 12% | `contractor_compliance`, `labor_efficiency` |
+| `headcount` | `operational_workforce` | 5% | 15% | `headcount_gaps`, `contractor_compliance` |
+| `cio` | `technical` | 4% | 8% | `cloud_spend`, `vendor_urgency` |
+
+---
+
+#### Modified: `src/agents/responses/buildDefaultAnswer.ts`
+
+Replaced the old role-switch + inline data assembly with a thin wrapper:
+
+```typescript
+import { buildRoleAnalysisResponse } from "@/lib/ai/role-analysis-engine";
+
+export function buildDefaultAnswer(ctx: ConversationContext): AgentResponse {
+  return buildRoleAnalysisResponse(ctx);
+}
+```
+
+All 6 response files (`cfo.ts`, `fpa.ts`, `procurement.ts`, `externalLabor.ts`, `headcount.ts`, `cio.ts`) already imported `buildDefaultAnswer` from Session M; no changes needed to those files.
+
+---
+
+### Bugs Found and Fixed
+
+Both fixes applied to `src/lib/ai/role-analysis-engine.ts` only.
+
+**Bug 1 — "YTD through YTD May 2026" redundant phrasing**
+
+Root cause: `s.periodLabel = "YTD May 2026"`. `detectBudgetVariance` stored it in the `period` field. The `analytical` voice sentence template prepends `"YTD through "` → `"YTD through YTD May 2026"`.
+
+Fix (line 96):
+```typescript
+// before
+period: s.periodLabel,
+// after
+period: s.periodLabel.replace(/^YTD\s+/i, ""),  // stores "May 2026"
+```
+
+Output before fix: `"YTD through YTD May 2026"`
+Output after fix: `"YTD through May 2026"` ✅
+
+**Bug 2 — In-place mutation of module-level cached snapshot array**
+
+Root cause: `const providers = s.cloudByProvider; providers.sort(...)` — `.sort()` is in-place and mutates the array reference inside the module-level `FinanceSnapshot` cache.
+
+Fix (line 130):
+```typescript
+// before
+const topProvider = providers.sort((a, b) => b.ytdSpend - a.ytdSpend)[0];
+// after
+const topProvider = [...providers].sort((a, b) => b.ytdSpend - a.ytdSpend)[0];
+```
+
+Non-breaking (sort was deterministic on the same data) but corrected for safety across repeated calls.
+
+---
+
+### TypeScript
+
+`npx tsc --noEmit` — **0 errors** (confirmed after both fixes).
+
+---
+
+### Smoke Test Results (actual `dispatchAgent()` dispatch path)
+
+All 5 questions routed through the live `dispatchAgent()` call. Verified: no capability menus, no "What would you like me to analyze?", no unsolicited Key Takeaways or Recommended Actions, all financial values match snapshot.
+
+| # | Agent | Question | Route | Result |
+|---|---|---|---|---|
+| 1 | fpa | "What is our YTD spend?" | `default` → role engine | ✅ PASS |
+| 2 | fpa | "What is driving the variance?" | `default` → role engine | ✅ PASS |
+| 3 | fpa | "Where will we land this year?" | `forecast` (specialized route) | ✅ PASS — correct specialized route, not default |
+| 4 | cfo | "What is our biggest risk?" | `default` → role engine | ✅ PASS |
+| 5 | procurement | "Which vendor concerns you most?" | `default` → role engine | ✅ PASS |
+
+**Financial values verified against snapshot:**
+
+| Value | Expected | Verified |
+|---|---|---|
+| YTD Actual | $14,598,000 | ✅ |
+| YTD Budget | $14,140,000 | ✅ |
+| YTD Variance | $458,000 | ✅ |
+| FY Forecast | $33,984,144 | ✅ |
+| FY Budget | $33,936,000 | ✅ |
+
+**Notes on live output vs. trace estimates:**
+- `daysUntil("2026-06-30")` showed 20 days (real-time computation — correct)
+- Procurement secondary finding was `headcount_gaps` (not `vendor_concentration` — HC gap score exceeded vendor concentration after priority weighting)
+- "3 other contracts" in Procurement output — more vendors in the 90-day no-auto-renew window than the static trace estimated
+
+---
+
+### Commit
+
+`8a481b4` — `feat(ai): add role-based analysis engine for dynamic agent responses`
+
+**Files staged (9 total):**
+
+| File | Status |
+|---|---|
+| `src/lib/ai/role-analysis-engine.ts` | **NEW** |
+| `src/lib/agents/role-perspectives.ts` | **NEW** |
+| `src/agents/responses/buildDefaultAnswer.ts` | **REPLACED** (thin wrapper) |
+| `src/agents/responses/cfo.ts` | **MODIFIED** — default handler |
+| `src/agents/responses/fpa.ts` | **MODIFIED** — default handler |
+| `src/agents/responses/procurement.ts` | **MODIFIED** — default handler |
+| `src/agents/responses/externalLabor.ts` | **MODIFIED** — default handler |
+| `src/agents/responses/headcount.ts` | **MODIFIED** — default handler |
+| `src/agents/responses/cio.ts` | **MODIFIED** — default handler |
+
+---
+
+### Security Constraints Maintained
+
+- No client names hardcoded in any new or modified file
+- `.env.local` not committed
+- `ANTHROPIC_API_KEY` not in any committed file
+
+---
+
+### Next Session Priorities
+
+1. **`git push origin main`** — deploy `8a481b4` and all unpushed commits to Vercel; verify live app with API key
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — currently calls `getAgentResponse` directly (open since Session G); required for Claude + guards to execute
+3. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — live path activates; role engine responses will be validated against Claude output
+4. **Vendor variance mock template** — procurement mock content gap (open since Session D)
+5. **Clerk auth decision** — Next.js 15 upgrade or Clerk v4/v5
