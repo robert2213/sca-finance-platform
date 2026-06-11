@@ -3687,7 +3687,7 @@ All other `"demo-client"` literal uses in application code replaced with `DEFAUL
 
 ### Commit
 
-`[pending — see below]`
+`81261f8` — `feat(sprint10-phase-a): centralize client ID resolution`
 
 ---
 
