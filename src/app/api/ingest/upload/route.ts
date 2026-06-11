@@ -4,6 +4,11 @@ import { parseCsvString } from "@/lib/ingestion/parsers/csv.parser";
 import { parseXlsx } from "@/lib/ingestion/parsers/xlsx.parser";
 import { runValidation } from "@/lib/validation/validation.runner";
 import type { ValidationStatus } from "@/lib/models/finance.types";
+import type { ValidationError, ValidationWarning } from "@/lib/validation/validation.types";
+import { validateFileStructure } from "@/lib/validation/file-validation.runner";
+import { extractCsvHeaders, extractXlsxHeaders } from "@/lib/validation/file-headers";
+import { classifyFileType } from "@/lib/validation/file-validators/unsupported-file.validator";
+import type { FileValidationIssue } from "@/lib/validation/file-validation.types";
 import { uploadHistory } from "@/lib/ingestion/upload-history.service";
 import type { UploadStatus } from "@/lib/ingestion/staging.types";
 import defaultConfig from "@/config/client.config";
@@ -11,11 +16,14 @@ import defaultConfig from "@/config/client.config";
 /**
  * POST /api/ingest/upload  — Sprint 11A.1 thin slice + 11A.2 history persistence
  *
- * Additive endpoint that runs an uploaded file through the existing V2 ingestion
- * stack (parse → map → validate), records the result in the in-memory upload
- * history service, and returns a structured summary including the uploadId and
- * lifecycle status. NO Databricks writes; fully independent of the legacy
- * POST /api/ingest route (which it does not touch).
+ * Additive endpoint that runs an uploaded file through:
+ *   file-structure validation (11A.3) → parse → map → semantic validation →
+ *   stage → history.
+ * Records the result in the in-memory upload history service and returns a
+ * structured summary (uploadId, lifecycle status, and split file/semantic
+ * validation reporting). If file-structure validation fails, the pipeline stops
+ * and returns a structured 422 (the upload is recorded as "failed"). NO
+ * Databricks writes; fully independent of the legacy POST /api/ingest route.
  *
  * Body: multipart/form-data
  *   file      — required — a .csv or .xlsx file
@@ -48,16 +56,15 @@ interface UploadSummary {
   errorCount: number;          // hard validation errors (block staging)
   warningCount: number;        // soft signals: parse + map + validation warnings
   sampleRows: Record<string, string>[];
-  readyForStaging: boolean;    // no errors AND at least one row
+  readyForStaging: boolean;    // no errors (file OR semantic) AND at least one row
   status: UploadStatus;        // lifecycle status (11A.2)
-}
-
-/** Map a filename extension to a supported file type, or null if unsupported. */
-function detectFileType(fileName: string): SupportedFileType | null {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  if (ext === "csv") return "csv";
-  if (ext === "xlsx" || ext === "xls" || ext === "xlsm") return "xlsx";
-  return null;
+  // ── Sprint 11A.3: split validation reporting (all fields above are unchanged) ──
+  fileValidationStatus: ValidationStatus;             // file-structure layer status
+  fileErrors: FileValidationIssue[];                  // blocking file-structure issues
+  fileWarnings: FileValidationIssue[];                // advisory file-structure issues
+  semanticValidationStatus: ValidationStatus | null;  // null when file validation blocked the run
+  semanticErrors: ValidationError[];                  // blocking semantic issues (mapped records)
+  semanticWarnings: ValidationWarning[];              // advisory semantic issues (mapped records)
 }
 
 export async function POST(request: NextRequest) {
@@ -73,7 +80,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing required field: file" }, { status: 400 });
   }
 
-  const fileType = detectFileType(file.name);
+  const fileType = classifyFileType(file.name);
   if (!fileType) {
     return NextResponse.json(
       { error: 'Unsupported file type. Supported: .csv, .xlsx' },
@@ -110,34 +117,99 @@ export async function POST(request: NextRequest) {
   const clientId = defaultConfig.clientId;
 
   try {
-    // ── Parse (raw, for file structure) + ingest (parse → map), both via V2 code ──
-    // ingestFile re-parses internally; the extra raw parse is what surfaces the
-    // file's own row/column shape (ingestFile only returns mapped records).
+    // ── Read raw content + extract row data and the RAW header row ──
+    // The semantic-stack parsers key rows by header (collapsing duplicates), so
+    // the raw header row is extracted separately for file-structure validation.
+    // ingestFile re-parses internally (the documented thin-slice double-parse).
+    let content: string | ArrayBuffer;
     let rawRows: Record<string, string>[];
-    let ingest;
+    let headers: string[];
 
     if (fileType === "csv") {
       const text = await file.text();
+      content = text;
       rawRows = parseCsvString(text).rows;
-      ingest = await ingestFile(text, file.name, { dataType, period, clientId, source: "upload" });
+      headers = extractCsvHeaders(text);
     } else {
       const buffer = await file.arrayBuffer();
+      content = buffer;
       rawRows = parseXlsx(buffer).rows;
-      ingest = await ingestFile(buffer, file.name, { dataType, period, clientId, source: "upload" });
+      headers = extractXlsxHeaders(buffer);
     }
 
-    // ── Validate the mapped records via the existing runner ──
-    const validation = runValidation(dataType, period, ingest.data, defaultConfig);
-
     const rowCount = rawRows.length;
-    const columnCount = rowCount > 0 ? Object.keys(rawRows[0]).length : 0;
-    const errorCount = validation.errors.length;
-    const warningCount = validation.warnings.length + ingest.warnings.length;
+    const columnCount = headers.length;
+    const sampleRows = rawRows.slice(0, SAMPLE_ROW_LIMIT);
+
+    // ── 1. FILE-STRUCTURE VALIDATION (Sprint 11A.3) — runs BEFORE parse/map ──
+    const fileValidation = validateFileStructure({
+      fileName: file.name,
+      dataType,
+      headers,
+      rows: rawRows,
+      declaredPeriod: periodInput,
+    });
+    const fileErrors = fileValidation.issues.filter((i) => i.severity === "error");
+    const fileWarnings = fileValidation.issues.filter((i) => i.severity === "warning");
+
+    // If file structure is invalid, record the failure and STOP — do not parse,
+    // map, semantically validate, or stage. Return a structured 422.
+    if (fileValidation.status === "error") {
+      const failed = uploadHistory.addUpload({
+        fileName: file.name,
+        fileType,
+        dataType,
+        period,
+        rowCount,
+        columnCount,
+        validationStatus: "error",
+        errorCount: fileErrors.length,
+        warningCount: fileWarnings.length,
+        readyForStaging: false,
+      });
+      uploadHistory.updateStatus(failed.uploadId, "failed");
+
+      const errorSummary: UploadSummary = {
+        uploadId: failed.uploadId,
+        fileName: file.name,
+        fileType,
+        dataType,
+        rowCount,
+        columnCount,
+        validationStatus: "error",
+        errorCount: fileErrors.length,
+        warningCount: fileWarnings.length,
+        sampleRows,
+        readyForStaging: false,
+        status: "failed",
+        fileValidationStatus: fileValidation.status,
+        fileErrors,
+        fileWarnings,
+        semanticValidationStatus: null, // semantic layer never ran
+        semanticErrors: [],
+        semanticWarnings: [],
+      };
+      return NextResponse.json(errorSummary, { status: 422 });
+    }
+
+    // ── 2. PARSE → MAP (V2 orchestrator) ──
+    const ingest = await ingestFile(content, file.name, { dataType, period, clientId, source: "upload" });
+
+    // ── 3. SEMANTIC VALIDATION (mapped records, existing runner — unchanged) ──
+    const validation = runValidation(dataType, period, ingest.data, defaultConfig);
+    const semanticErrors = validation.errors;
+    const semanticWarnings = validation.warnings;
+    const semanticValidationStatus: ValidationStatus =
+      semanticErrors.length > 0 ? "error" : semanticWarnings.length > 0 ? "warn" : "pass";
+
+    // ── Combined totals — existing top-level fields = file + semantic (+ ingest warnings) ──
+    const errorCount = fileErrors.length + semanticErrors.length;
+    const warningCount = fileWarnings.length + semanticWarnings.length + ingest.warnings.length;
     const validationStatus: ValidationStatus =
       errorCount > 0 ? "error" : warningCount > 0 ? "warn" : "pass";
-    const readyForStaging = validation.passed && rowCount > 0;
+    const readyForStaging = errorCount === 0 && rowCount > 0;
 
-    // ── Persist to upload history (Sprint 11A.2, in-memory) ──
+    // ── 4. STAGE + HISTORY (Sprint 11A.2, in-memory) ──
     // Lifecycle: addUpload() registers as "uploaded", then we transition to the
     // post-validation status. ("staged" is reserved for the future load step.)
     const record = uploadHistory.addUpload({
@@ -165,9 +237,15 @@ export async function POST(request: NextRequest) {
       validationStatus,
       errorCount,
       warningCount,
-      sampleRows: rawRows.slice(0, SAMPLE_ROW_LIMIT),
+      sampleRows,
       readyForStaging,
       status,
+      fileValidationStatus: fileValidation.status,
+      fileErrors,
+      fileWarnings,
+      semanticValidationStatus,
+      semanticErrors,
+      semanticWarnings,
     };
 
     return NextResponse.json(summary);
@@ -183,7 +261,8 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     endpoint: "POST /api/ingest/upload",
-    description: "Parse + map + validate an upload, then record it in the in-memory upload history (Sprint 11A.2).",
+    description: "Validate file structure (11A.3), then parse + map + semantically validate an upload, then record it in the in-memory upload history (11A.2).",
+    pipeline: ["file-structure-validation", "parse", "map", "semantic-validation", "stage", "history"],
     acceptedFileTypes: ["csv", "xlsx"],
     dataTypes: VALID_DATA_TYPES,
     maxFileSizeMB: 50,
