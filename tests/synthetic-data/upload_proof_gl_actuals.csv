@@ -1,0 +1,4 @@
+period,cost_center_id,cost_center_name,business_unit,category,amount_actual,amount_budget
+2026-05,CC-UPLOAD-PROOF,Upload Proof CC,ZZ Upload Proof BU,Cloud,111111,100000
+2026-05,CC-UPLOAD-PROOF,Upload Proof CC,ZZ Upload Proof BU,Cloud,222222,100000
+2026-05,CC-UPLOAD-PROOF,Upload Proof CC,ZZ Upload Proof BU,Cloud,333333,100000

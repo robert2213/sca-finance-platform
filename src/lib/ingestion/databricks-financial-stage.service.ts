@@ -8,16 +8,29 @@
 //
 // Design (mirrors DatabricksUploadHistory, Sprint 11A.4):
 //   • INSERT-ONLY. No MERGE / UPDATE / DELETE / TRUNCATE. Existing seeded/demo
-//     rows are never read, overwritten, or removed (they carry upload_id IS NULL;
-//     this loader only ever appends rows that carry a non-null upload_id).
+//     rows are never read, overwritten, or removed (they carry
+//     source_system != 'upload'; this loader only ever appends rows stamped
+//     source_system = 'upload').
 //   • Databricks-first with an injected in-memory fallback. On ANY error
-//     (warehouse unreachable, fact_transactions / lineage columns missing, query
-//     failure), it logs a warning and delegates the SAME batch to the in-memory
-//     stage so the upload endpoint never breaks. The fallback is injected (not
-//     imported) to avoid a circular dependency on the resolver.
-//   • Lineage columns (upload_id, source_file, source_type, ingested_at) are
-//     added by migrations/004-fact-transactions-ingest-lineage.sql. Until that
-//     migration runs, the INSERT fails and we fall back — same contract as 11A.4.
+//     (warehouse unreachable, fact_transactions missing, query failure), it logs
+//     a warning and delegates the SAME batch to the in-memory stage so the upload
+//     endpoint never breaks. The fallback is injected (not imported) to avoid a
+//     circular dependency on the resolver.
+//
+// Schema-adaptive load (Sprint 11A.7.1):
+//   The ingestion-lineage columns (upload_id, source_file, source_type,
+//   ingested_at) are OPTIONAL, added by migrations/004-fact-transactions-ingest-
+//   lineage.sql. They are NOT required to load financial rows: the dashboards,
+//   KPIs, and agents read fact_transactions filtering only on transaction_type,
+//   period, client_id, business_unit and category — never on a lineage column
+//   (the legacy writer.ts likewise writes only the 15 base columns). So this
+//   loader probes the live table once and:
+//     • lineage columns present  → writes all 19 columns (full traceability);
+//     • lineage columns absent   → writes the existing 15 columns, so rows land
+//       durably in fact_transactions on the original schema. Per-upload staged
+//       inspection then degrades to the process-local in-memory mirror.
+//   This means the real Delta load works on the existing schema today AND
+//   auto-upgrades if migration 004 is later run — no code change required.
 //
 // Column mapping is documented in migration 004's header and in mapValues() below.
 
@@ -95,12 +108,38 @@ function rowToCanonical(r: Record<string, unknown>): CanonicalFinancialRecord {
 export class DatabricksFinancialStage implements FinancialStage {
   constructor(private readonly fallback: FinancialStage) {}
 
+  // Cached result of probing whether fact_transactions carries the optional
+  // ingestion-lineage columns (migration 004). null = not probed yet. Probed
+  // once per process; a restart re-probes (so it picks up a later migration).
+  private lineage: boolean | null = null;
+
   private warn(op: string, err: unknown): string {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
       `[financial-stage] Databricks ${op} failed; falling back to in-memory stage: ${msg}`
     );
     return msg;
+  }
+
+  /**
+   * Does the live fact_transactions table have the ingestion-lineage columns
+   * (upload_id, ...)? Probed via DESCRIBE TABLE and cached. If the probe itself
+   * fails we assume "no" — the safest choice, since the base 15-column INSERT
+   * works against the original schema and any genuine write failure still falls
+   * back to in-memory in stage().
+   */
+  private async hasLineageColumns(): Promise<boolean> {
+    if (this.lineage !== null) return this.lineage;
+    try {
+      const res = await dbQuery<Record<string, unknown>>(`DESCRIBE TABLE ${TABLE}`);
+      this.lineage = res.rows.some(
+        (r) => str(r.col_name).trim().toLowerCase() === "upload_id"
+      );
+    } catch (err) {
+      this.warn("describe", err);
+      this.lineage = false;
+    }
+    return this.lineage;
   }
 
   /**
@@ -118,10 +157,24 @@ export class DatabricksFinancialStage implements FinancialStage {
     }
 
     try {
+      const lineage = await this.hasLineageColumns();
       for (let i = 0; i < valid.length; i += CHUNK) {
-        await this.insertChunk(valid.slice(i, i + CHUNK));
+        await this.insertChunk(valid.slice(i, i + CHUNK), lineage);
       }
-      return { staged: valid.length, rejected, backend: "databricks" };
+      // Without lineage columns the rows cannot be queried back by upload_id, so
+      // mirror them into the in-memory stage to keep per-upload inspection
+      // (GET /api/ingest/staged?uploadId=) working within this process. The
+      // authoritative rows are already durable in fact_transactions for the
+      // dashboards/agents (which never filter on lineage).
+      const warnings = lineage
+        ? undefined
+        : [
+            "fact_transactions has no ingestion-lineage columns (migration 004 " +
+              "not run); rows were loaded durably into the existing 15-column " +
+              "schema. Per-upload staged inspection is process-local.",
+          ];
+      if (!lineage) await this.fallback.stage(valid);
+      return { staged: valid.length, rejected, backend: "databricks", warnings };
     } catch (err) {
       const msg = this.warn("stage", err);
       const fb = await this.fallback.stage(records);
@@ -136,34 +189,50 @@ export class DatabricksFinancialStage implements FinancialStage {
     }
   }
 
-  /** INSERT one chunk of canonical records into fact_transactions (append-only). */
-  private async insertChunk(rows: CanonicalFinancialRecord[]): Promise<void> {
-    // 18 bound params per row; ingested_at uses current_timestamp() (no param).
-    const rowSql =
-      "(?, CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp())";
+  /**
+   * INSERT one chunk of canonical records into fact_transactions (append-only).
+   * Writes the 15 base columns always; appends the 4 lineage columns only when
+   * the live table has them (`lineage` — see hasLineageColumns()).
+   */
+  private async insertChunk(
+    rows: CanonicalFinancialRecord[],
+    lineage: boolean
+  ): Promise<void> {
+    const baseCols =
+      "transaction_id, date, period, cost_center_id, cost_center_name, " +
+      "vendor_id, category, subcategory, business_unit, " +
+      "amount_actual, amount_budget, amount_forecast, " +
+      "transaction_type, source_system, client_id";
+    // 15 base bound params per row.
+    const baseRow = "(?, CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
+
+    const cols = lineage
+      ? `${baseCols}, upload_id, source_file, source_type, ingested_at`
+      : baseCols;
+    // Lineage path: +3 bound params (upload_id, source_file, source_type) and
+    // ingested_at via current_timestamp() (no param).
+    const rowSql = lineage
+      ? `${baseRow}, ?, ?, ?, current_timestamp())`
+      : `${baseRow})`;
+
     const valuesSql = rows.map(() => rowSql).join(",\n");
     const params: unknown[] = [];
-    rows.forEach((r, i) => params.push(...this.mapValues(r, i)));
+    rows.forEach((r, i) => params.push(...this.mapValues(r, i, lineage)));
 
-    await dbQuery(
-      `INSERT INTO ${TABLE}
-         (transaction_id, date, period, cost_center_id, cost_center_name,
-          vendor_id, category, subcategory, business_unit,
-          amount_actual, amount_budget, amount_forecast,
-          transaction_type, source_system, client_id,
-          upload_id, source_file, source_type, ingested_at)
-       VALUES\n${valuesSql}`,
-      params
-    );
+    await dbQuery(`INSERT INTO ${TABLE}\n  (${cols})\nVALUES\n${valuesSql}`, params);
   }
 
   /** Canonical record → the ordered param list for one VALUES row. */
-  private mapValues(r: CanonicalFinancialRecord, idx: number): unknown[] {
+  private mapValues(
+    r: CanonicalFinancialRecord,
+    idx: number,
+    lineage: boolean
+  ): unknown[] {
     const transactionId = `${r.upload_id}-${String(idx).padStart(6, "0")}`;
     const date = `${r.period}-01`; // first of the fiscal month; CAST AS DATE in SQL
     // vendor_id is a nullable FK; only the vendors type carries a real vendor id.
     const vendorId = r.source_type === "vendors" ? r.entity_id : "";
-    return [
+    const baseParams: unknown[] = [
       transactionId,
       date,
       r.period,
@@ -179,14 +248,19 @@ export class DatabricksFinancialStage implements FinancialStage {
       transactionType(r.source_type),
       SOURCE_SYSTEM,
       r.client_id,
-      r.upload_id,
-      r.source_file,
-      r.source_type,
     ];
+    return lineage
+      ? [...baseParams, r.upload_id, r.source_file, r.source_type]
+      : baseParams;
   }
 
   async getByUpload(uploadId: string): Promise<CanonicalFinancialRecord[]> {
     try {
+      // No lineage columns → upload_id is not stored in Databricks. Per-upload
+      // detail comes from the process-local in-memory mirror written in stage().
+      if (!(await this.hasLineageColumns())) {
+        return this.fallback.getByUpload(uploadId);
+      }
       const res = await dbQuery<Record<string, unknown>>(
         `SELECT period, cost_center_id, cost_center_name, business_unit, category,
                 amount_actual, amount_budget, amount_forecast,
@@ -204,11 +278,20 @@ export class DatabricksFinancialStage implements FinancialStage {
 
   async count(): Promise<number> {
     try {
-      const res = await dbQuery<{ n: unknown }>(
-        `SELECT COUNT(*) AS n FROM ${TABLE}
-         WHERE upload_id IS NOT NULL AND client_id = ?`,
-        [DEFAULT_CLIENT_ID]
-      );
+      // With lineage, count rows carrying an upload_id; without it, count rows
+      // stamped source_system = 'upload' (the durable marker for ingested rows).
+      const lineage = await this.hasLineageColumns();
+      const res = lineage
+        ? await dbQuery<{ n: unknown }>(
+            `SELECT COUNT(*) AS n FROM ${TABLE}
+             WHERE upload_id IS NOT NULL AND client_id = ?`,
+            [DEFAULT_CLIENT_ID]
+          )
+        : await dbQuery<{ n: unknown }>(
+            `SELECT COUNT(*) AS n FROM ${TABLE}
+             WHERE source_system = ? AND client_id = ?`,
+            [SOURCE_SYSTEM, DEFAULT_CLIENT_ID]
+          );
       return num(res.rows[0]?.n);
     } catch (err) {
       this.warn("count", err);
@@ -218,6 +301,11 @@ export class DatabricksFinancialStage implements FinancialStage {
 
   async listUploadSummaries(): Promise<UploadStageSummary[]> {
     try {
+      // Per-upload roll-up needs upload_id/source_file. Without the lineage
+      // columns those aren't in Databricks → use the process-local mirror.
+      if (!(await this.hasLineageColumns())) {
+        return this.fallback.listUploadSummaries();
+      }
       const res = await dbQuery<Record<string, unknown>>(
         `SELECT upload_id, source_type, source_file, COUNT(*) AS n
          FROM ${TABLE}
