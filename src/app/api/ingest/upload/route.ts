@@ -10,6 +10,8 @@ import { extractCsvHeaders, extractXlsxHeaders } from "@/lib/validation/file-hea
 import { classifyFileType } from "@/lib/validation/file-validators/unsupported-file.validator";
 import type { FileValidationIssue } from "@/lib/validation/file-validation.types";
 import { uploadHistory } from "@/lib/ingestion/upload-history.resolver";
+import { financialStage } from "@/lib/ingestion/financial-stage.resolver";
+import { toCanonicalRecords } from "@/lib/ingestion/financial-record.transformer";
 import type { UploadStatus } from "@/lib/ingestion/staging.types";
 import { detectDataType, type DetectionConfidence } from "@/lib/ingestion/data-type-detector";
 import defaultConfig from "@/config/client.config";
@@ -73,6 +75,11 @@ interface UploadSummary {
   detectionScore: number;                 // winner match ratio, 0..1
   matchedColumns: string[];               // detector signals matched (winning type)
   missingColumns: string[];               // detector signals not matched (winning type)
+  // ── Sprint 11A.6: staging pipeline row metrics ──
+  rowsReceived: number;    // raw data rows parsed from the file
+  rowsValidated: number;   // mapped rows eligible for staging (0 when blocked)
+  rowsStaged: number;      // canonical records accepted by the financial stage
+  rowsRejected: number;    // rowsReceived − rowsStaged
 }
 
 export async function POST(request: NextRequest) {
@@ -215,6 +222,10 @@ export async function POST(request: NextRequest) {
         semanticErrors: [],
         semanticWarnings: [],
         ...detectionFields,
+        rowsReceived: rowCount,
+        rowsValidated: 0,
+        rowsStaged: 0,
+        rowsRejected: rowCount,
       };
       return NextResponse.json(errorSummary, { status: 422 });
     };
@@ -263,9 +274,8 @@ export async function POST(request: NextRequest) {
       errorCount > 0 ? "error" : warningCount > 0 ? "warn" : "pass";
     const readyForStaging = errorCount === 0 && rowCount > 0;
 
-    // ── 4. STAGE + HISTORY (Sprint 11A.2, in-memory) ──
-    // Lifecycle: addUpload() registers as "uploaded", then we transition to the
-    // post-validation status. ("staged" is reserved for the future load step.)
+    // ── 4. HISTORY (Sprint 11A.2/11A.4) ──
+    // addUpload() registers as "uploaded"; the final status is set after staging.
     const record = await uploadHistory.addUpload({
       fileName: file.name,
       fileType,
@@ -278,7 +288,28 @@ export async function POST(request: NextRequest) {
       warningCount,
       readyForStaging,
     });
-    const status: UploadStatus = errorCount > 0 ? "failed" : "validated";
+
+    // ── 5. TRANSFORM → STAGE (Sprint 11A.6) ──
+    // Only validated uploads (no blocking errors) are staged. Mapped records are
+    // transformed into canonical financial records and written to the in-memory
+    // financial stage. NO fact_transactions / Databricks writes this sprint.
+    let rowsStaged = 0;
+    if (errorCount === 0 && ingest.data.length > 0) {
+      const canonical = toCanonicalRecords(dataType, ingest.data, {
+        uploadId: record.uploadId,
+        sourceFile: file.name,
+        clientId,
+      });
+      const outcome = await financialStage.stage(canonical);
+      rowsStaged = outcome.staged;
+    }
+    const rowsReceived = rowCount;
+    const rowsValidated = errorCount === 0 ? ingest.rowsMapped : 0;
+    const rowsRejected = Math.max(0, rowsReceived - rowsStaged);
+
+    // Lifecycle: uploaded → validated → staged (rows in the stage), or failed.
+    const status: UploadStatus =
+      errorCount > 0 ? "failed" : rowsStaged > 0 ? "staged" : "validated";
     await uploadHistory.updateStatus(record.uploadId, status);
 
     const summary: UploadSummary = {
@@ -301,6 +332,10 @@ export async function POST(request: NextRequest) {
       semanticErrors,
       semanticWarnings,
       ...detectionFields,
+      rowsReceived,
+      rowsValidated,
+      rowsStaged,
+      rowsRejected,
     };
 
     return NextResponse.json(summary);
@@ -316,8 +351,8 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     endpoint: "POST /api/ingest/upload",
-    description: "Auto-detect the data type (11A.5), validate file structure (11A.3), parse + map + semantically validate, then record in the upload history (11A.2/11A.4).",
-    pipeline: ["data-type-detection", "file-structure-validation", "parse", "map", "semantic-validation", "stage", "history"],
+    description: "Auto-detect type (11A.5), validate structure (11A.3), parse + map + semantically validate, transform to canonical rows + stage (11A.6), and record in the upload history (11A.2/11A.4).",
+    pipeline: ["data-type-detection", "file-structure-validation", "parse", "map", "semantic-validation", "transform", "stage", "history"],
     acceptedFileTypes: ["csv", "xlsx"],
     dataTypes: VALID_DATA_TYPES,
     maxFileSizeMB: 50,
@@ -329,6 +364,10 @@ export async function GET() {
     history: {
       list: "GET /api/ingest/uploads",
       detail: "GET /api/ingest/uploads/[uploadId]",
+    },
+    staging: {
+      inspect: "GET /api/ingest/staged",
+      byUpload: "GET /api/ingest/staged?uploadId=[uploadId]",
     },
   });
 }
