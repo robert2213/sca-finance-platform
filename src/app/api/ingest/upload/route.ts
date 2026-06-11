@@ -4,14 +4,17 @@ import { parseCsvString } from "@/lib/ingestion/parsers/csv.parser";
 import { parseXlsx } from "@/lib/ingestion/parsers/xlsx.parser";
 import { runValidation } from "@/lib/validation/validation.runner";
 import type { ValidationStatus } from "@/lib/models/finance.types";
+import { uploadHistory } from "@/lib/ingestion/upload-history.service";
+import type { UploadStatus } from "@/lib/ingestion/staging.types";
 import defaultConfig from "@/config/client.config";
 
 /**
- * POST /api/ingest/upload  — Sprint 11A.1 thin slice
+ * POST /api/ingest/upload  — Sprint 11A.1 thin slice + 11A.2 history persistence
  *
  * Additive endpoint that runs an uploaded file through the existing V2 ingestion
- * stack (parse → map → validate) and returns a structured summary. It performs
- * NO persistence, NO Databricks writes, and is fully independent of the legacy
+ * stack (parse → map → validate), records the result in the in-memory upload
+ * history service, and returns a structured summary including the uploadId and
+ * lifecycle status. NO Databricks writes; fully independent of the legacy
  * POST /api/ingest route (which it does not touch).
  *
  * Body: multipart/form-data
@@ -20,7 +23,8 @@ import defaultConfig from "@/config/client.config";
  *               vendors | external-labor        (default: gl-actuals)
  *   period    — optional — ISO month "YYYY-MM"  (default: first configured period)
  *
- * Returns: UploadSummary JSON
+ * Returns: UploadSummary JSON (with uploadId + status). The record is retrievable
+ * via GET /api/ingest/uploads and GET /api/ingest/uploads/[uploadId].
  */
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — mirrors POST /api/ingest
@@ -34,6 +38,7 @@ const VALID_DATA_TYPES: DataType[] = [
 type SupportedFileType = "csv" | "xlsx";
 
 interface UploadSummary {
+  uploadId: string;            // history record id (11A.2)
   fileName: string;
   fileType: SupportedFileType;
   dataType: DataType;
@@ -44,6 +49,7 @@ interface UploadSummary {
   warningCount: number;        // soft signals: parse + map + validation warnings
   sampleRows: Record<string, string>[];
   readyForStaging: boolean;    // no errors AND at least one row
+  status: UploadStatus;        // lifecycle status (11A.2)
 }
 
 /** Map a filename extension to a supported file type, or null if unsupported. */
@@ -129,8 +135,28 @@ export async function POST(request: NextRequest) {
     const warningCount = validation.warnings.length + ingest.warnings.length;
     const validationStatus: ValidationStatus =
       errorCount > 0 ? "error" : warningCount > 0 ? "warn" : "pass";
+    const readyForStaging = validation.passed && rowCount > 0;
+
+    // ── Persist to upload history (Sprint 11A.2, in-memory) ──
+    // Lifecycle: addUpload() registers as "uploaded", then we transition to the
+    // post-validation status. ("staged" is reserved for the future load step.)
+    const record = uploadHistory.addUpload({
+      fileName: file.name,
+      fileType,
+      dataType,
+      period,
+      rowCount,
+      columnCount,
+      validationStatus,
+      errorCount,
+      warningCount,
+      readyForStaging,
+    });
+    const status: UploadStatus = errorCount > 0 ? "failed" : "validated";
+    uploadHistory.updateStatus(record.uploadId, status);
 
     const summary: UploadSummary = {
+      uploadId: record.uploadId,
       fileName: file.name,
       fileType,
       dataType,
@@ -140,7 +166,8 @@ export async function POST(request: NextRequest) {
       errorCount,
       warningCount,
       sampleRows: rawRows.slice(0, SAMPLE_ROW_LIMIT),
-      readyForStaging: validation.passed && rowCount > 0,
+      readyForStaging,
+      status,
     };
 
     return NextResponse.json(summary);
@@ -156,7 +183,7 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     endpoint: "POST /api/ingest/upload",
-    description: "Sprint 11A.1 thin slice — parse + map + validate an upload; no persistence.",
+    description: "Parse + map + validate an upload, then record it in the in-memory upload history (Sprint 11A.2).",
     acceptedFileTypes: ["csv", "xlsx"],
     dataTypes: VALID_DATA_TYPES,
     maxFileSizeMB: 50,
@@ -164,6 +191,10 @@ export async function GET() {
       file: "required — a .csv or .xlsx file",
       dataType: "optional — defaults to gl-actuals",
       period: "optional — ISO month YYYY-MM; defaults to first configured period",
+    },
+    history: {
+      list: "GET /api/ingest/uploads",
+      detail: "GET /api/ingest/uploads/[uploadId]",
     },
   });
 }
