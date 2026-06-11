@@ -6146,7 +6146,7 @@ Make every page and API route explicitly resolve and pass `clientId` instead of 
 
 ### One pre-existing open item (not Phase B scope)
 
-`generateRiskFlagsAsync()` calls `getByBusinessUnit(undefined, clientId)` — no period filter. On multi-year Databricks databases, this fetches all years' BU spend for cloud overage calculations. Correct for the demo dataset (2026 only). Fix: pass `YTD_CUTOFF` as the period arg in a future sprint.
+`generateRiskFlagsAsync()` calls `getByBusinessUnit(undefined, clientId)` — no period filter. On multi-year Databricks databases, this fetches all years' BU spend for cloud overage calculations. Correct for the demo dataset (2026 only). Fix: pass `YTD_CUTOFF` as the period arg in a future sprint. **→ Resolved in Sprint 10 Phase C (commit `c71771c`). Note: the "correct for the demo dataset" assumption was itself wrong — the demo `fact_transactions` spans all 12 periods of 2026 with full-year budget, so the unbounded query compared full-year budget against YTD actuals and wrongly suppressed the cloud flag. See the Phase C section below.**
 
 ### Validation
 
@@ -6159,3 +6159,67 @@ Behavior:   unchanged — resolveClientId() returns "demo-client" until auth lan
 ### Regression Risk
 
 **None.** `resolveClientId()` always returns `"demo-client"`. Passing an explicit value that equals the old default changes nothing about query results, renders, or API responses.
+
+---
+
+## Sprint 10 Phase C — Risk Engine YTD Alignment
+
+**Date:** 2026-06-11
+**Commit:** `c71771c`
+**Status:** Complete.
+
+### Objective
+
+Close the final known data-alignment gap in the risk engine: `generateRiskFlagsAsync()`'s cloud-overage calculation was not scoped to the active reporting period (YTD), so it diverged from the dashboard's Cloud Infrastructure KPI.
+
+### Root Cause
+
+`generateRiskFlagsAsync()` (`src/lib/riskEngine.ts:154`) called `getByBusinessUnit(undefined, clientId)`. In `src/lib/queries/actuals.ts:118-139`, the period clause (`AND period >= ? AND period <= ?`) is only emitted when a `period` argument is supplied — so passing `undefined` drops the bound and `SUM`s `amount_actual`/`amount_budget` across **every** period in `fact_transactions`.
+
+Measured against the live Databricks demo dataset (`demo-client`, Cloud Engineering + Data & Analytics BUs):
+
+| Scope | Cloud Actual | Cloud Budget | Variance | `cloudVar > 0` → flag |
+|---|---|---|---|---|
+| **Old** `undefined` (12 periods, 2026-01→2026-12) | $13,564,366 | $24,000,000 | **−$10.44M** | false → **suppressed** |
+| **New** `YTD_CUTOFF` (2026-01→2026-05) | $11,151,049 | $10,000,000 | **+$1.15M** | true → **critical flag** |
+
+The demo `fact_transactions` carries **all 12 periods of 2026** (`n_periods = 12`) with full-year budget but actuals weighted to YTD — so the unbounded query compared full-year budget ($24.0M) against ~YTD actuals, produced a large favorable variance, and **wrongly suppressed** the "Cloud Spend Trending Over Budget" flag. Meanwhile the dashboard's Cloud Infrastructure KPI (`buildDashboardKPIsFromDB`, `queries/kpi.ts:62`) already used `getByBusinessUnit(YTD_CUTOFF, clientId)` and correctly showed cloud **over** budget YTD. The risk engine contradicted the dashboard; this closes that gap.
+
+### Change
+
+| File | Change |
+|---|---|
+| `src/lib/riskEngine.ts` | Imported `YTD_CUTOFF` from `@/lib/queries`. Changed `getByBusinessUnit(undefined, clientId)` → `getByBusinessUnit(YTD_CUTOFF, clientId)` (+ explanatory comment). +4 / −1. |
+
+Single-file, single-call-site change. Mirrors the dashboard's canonical YTD call exactly.
+
+### Audit — remaining period args reviewed (no change required)
+
+| Callsite | Verdict |
+|---|---|
+| `src/lib/riskEngine.ts:155` `getActualsByPeriod("2026-05", clientId)` | Correctly-scoped single-period (point) query feeding the "in May" cost-center flag. Equals `YTD_CUTOFF` today. **Left as-is** — switching to `YTD_CUTOFF` would desync the hardcoded "May" title / `mayActuals` name at the next month-close, expanding the change beyond surgical scope. Latent drift item — see below. |
+| `src/agents/dataContext.ts:116,123` `getMonthlyTotals()` / `getByBusinessUnit()` (no args) | The **static** `@/data/actuals` helpers inside `getFinanceSnapshot()` (single-year arrays, non-DB, agent code). Out of scope. The DB-backed `buildSnapshotFromDB()` was already YTD-scoped in a prior sprint. |
+| `src/lib/metrics.ts:59` `getByBusinessUnit()` | Orphaned static helper. Out of scope. |
+| `src/lib/reporting/executive-report.generator.ts` | Pure function — reduces over arrays passed in by the caller; never issues a DB query with an undefined period. Out of scope (and untracked). |
+| `src/app/page.tsx`, `fpa/page.tsx`, `kpi.ts`, `kpi.service.ts` | Already pass `YTD_CUTOFF` / `2026`. Correct. |
+
+### Validation
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ 29/29 routes  (npm run build, rendered against live Databricks)
+Runtime:    dashboard GET / → 200
+            /cfo → 200, renders RISK-0xx flags incl. the corrected
+                   "Cloud Spend Trending Over Budget" critical flag
+Alignment:  risk-engine cloud YTD ($11.15M vs $10.0M) now equals the
+            dashboard Cloud Infrastructure KPI — previously contradicted it
+KPI values: unchanged (kpi.ts / kpi.service.ts / dashboard untouched)
+```
+
+### Regression Risk
+
+**Low, and the one behavioral change is the intended correction.** The fix touches a single call site in `riskEngine.ts`. Financial KPI figures (YTD spend, variance %, etc.) are unchanged — they come from `getYTDSummary`/`getByCategory`, which were untouched and already YTD-scoped. The deliberate effect is that the cloud-overage risk flag now **fires** (critical, +$1.15M YTD) where it was previously suppressed, bringing the risk engine into agreement with the dashboard. As a downstream consequence, `StatsBanner`'s critical-risk count reflects this corrected flag. No dashboard visuals, agent routing, role-analysis-engine, ingestion, or client-config code was modified.
+
+### Open / deferred (not Phase C scope)
+
+- **`riskEngine.ts:155` hardcoded `"2026-05"`** — functionally correct (equals `YTD_CUTOFF`) but will drift at the next month-close. Making it dynamic requires also updating the flag's "May" title and the `mayActuals` identifier; bundle that together in a future sprint rather than as a half-measure here.
