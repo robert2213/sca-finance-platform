@@ -6312,3 +6312,77 @@ Runtime (curl against dev server, no DB I/O involved):
 **Validated:** `npx tsc --noEmit` clean; `npm run build` ✓ 30/30 routes. The committed set is now import-closed — every import resolves to a committed file, the already-tracked `config/client.config.ts`, or an npm package (`papaparse`, `xlsx`).
 
 **Lesson for future additive endpoints:** when a new route imports from untracked `src/lib/**`, stage the route **and** its dependency closure in the same commit. A passing local build is not sufficient proof — trace imports or test from a clean checkout.
+
+---
+
+## Sprint 11A.2 — Staging Model & Upload History Service
+
+**Date:** 2026-06-11
+**Commit:** `eca9299`
+**Status:** Complete. (Pre-work confirmed Vercel green on `c1b054a` via GitHub commit-status API — `gh` CLI is not installed; used `curl https://api.github.com/.../commits/c1b054a/status`.)
+
+### Objective
+
+Add the first persistence layer for the ingestion pipeline, advancing it from `Upload → Parse → Map → Validate → JSON` to `… → Validate → Stage → History → (Ready for Databricks load)`. In-memory only — the goal is to validate the service/route architecture before durable storage.
+
+### Architecture (swap-ready)
+
+```
+route handlers ──import──▶ uploadHistory : UploadHistoryStore  (interface)
+                                  │
+                                  └─ InMemoryUploadHistory   ← THE single swap point
+                                     (globalThis-guarded singleton)
+```
+
+Routes depend only on the `UploadHistoryStore` interface via the `uploadHistory` binding. Sprint 11A.4 can replace `new InMemoryUploadHistory()` with `new DatabricksUploadHistory(...)` in one line of `upload-history.service.ts` — **no route changes**.
+
+### Files
+
+| File | Change |
+|---|---|
+| `src/lib/ingestion/staging.types.ts` | **NEW.** `StagedUpload` record, `UploadStatus` (`uploaded`/`validated`/`staged`/`failed`), `NewUploadInput`, `UploadHistoryStore` interface. |
+| `src/lib/ingestion/upload-history.service.ts` | **NEW.** `InMemoryUploadHistory` (Map-backed) implementing `addUpload`/`getUpload`/`listUploads`/`updateStatus`; `uploadHistory` singleton on `globalThis`. |
+| `src/app/api/ingest/uploads/route.ts` | **NEW.** `GET` → `{ count, uploads }`, most recent first. `force-dynamic`. |
+| `src/app/api/ingest/uploads/[uploadId]/route.ts` | **NEW.** `GET` → full record or `404`. `force-dynamic`. |
+| `src/app/api/ingest/upload/route.ts` | **MODIFIED.** After validation: `addUpload()` then `updateStatus()` to `validated`/`failed`; response now includes `uploadId` + `status`. |
+
+### Key decisions
+
+- **`force-dynamic` on the history GET routes.** Without it, `next build` prerendered `/api/ingest/uploads` as **static** (caught in the route table as `○`), which would serve a frozen empty list in production. Both history routes now render on demand (`ƒ`).
+- **`globalThis` singleton.** Survives Next dev hot-reload (module re-eval) and is shared by all routes within one process.
+- **Lifecycle.** `addUpload` registers as `uploaded`; the upload route transitions to `validated` (no errors) or `failed` (errors). `staged` is reserved for the future Databricks-load step (11A.3/11A.4).
+- **`Array.from(map.values())`** instead of `[...map.values()]` — the project's tsconfig target rejects spreading a Map iterator (TS2802); avoided a tsconfig change.
+
+### Validation
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ next build — /api/ingest/{upload,uploads,uploads/[uploadId]} all ƒ (Dynamic)
+Runtime (curl, single dev process, no DB I/O):
+  POST upload (valid)   -> 200 {uploadId, status:"validated", readyForStaging:true}
+  POST upload (errors)  -> 200 {uploadId, status:"failed",   errorCount:2, readyForStaging:false}
+  GET  /uploads         -> 200 {count:2, uploads:[…latest first]}
+  GET  /uploads/{id}    -> 200 full StagedUpload record
+  GET  /uploads/{bad}   -> 404 {error}
+```
+
+### Known limitation (by design for this phase)
+
+In-memory state is **per serverless function instance**. On Vercel each route is a separate function, so the history endpoints will not see records written by the upload function across instances. This is the accepted in-memory caveat and the reason durable storage is the planned replacement. The architecture (interface + single swap point) is validated locally where all routes share one process.
+
+### Environment note
+
+Windows + OneDrive turns idle `.next/**` files into cloud placeholders; `next dev`/`next build` then fail with `EINVAL: readlink '.next/...'`. Fix that worked: `Remove-Item -Recurse -Force .next` before starting. Consider excluding `.next` from OneDrive sync.
+
+### Remaining Sprint 11A work (updated)
+
+1. ~~Staging model + history service~~ ✅ **11A.2**.
+2. **Durable persistence (11A.4)** — `DatabricksUploadHistory` (or a staging table) behind the same `UploadHistoryStore` interface; solves the cross-instance limitation.
+3. **File-structure validation foundation** — empty-file, duplicate-header, required-column, period-format on raw uploads.
+4. **`dataType` auto-detection** from headers (remove the gl-actuals default).
+5. **Stage row data → Databricks load** (the actual write step; the `staged` status lands here).
+6. **Architecture documentation** — extend `docs/INGESTION.md` for upload→stage→load.
+
+### Regression risk
+
+**Low / additive.** Four new files plus one additive enhancement to the 11A.1 upload route (extra response fields; existing fields unchanged). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, or legacy `/api/ingest` touched. The upload route's response is a superset of 11A.1's, so existing callers are unaffected.
