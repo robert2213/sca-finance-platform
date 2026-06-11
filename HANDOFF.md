@@ -6088,3 +6088,74 @@ credits are restored the live path uses the same `resolveSnapshot()` result.
   fanned-out agents. Acceptable and consistent with `/api/agent`.
 - **Watch item:** restore Anthropic API credits to re-enable the live Claude path and
   validate live-mode responses end-to-end.
+
+---
+
+## Sprint 10 Phase B — Explicit clientId Propagation
+
+**Date:** 2026-06-11
+**Commit:** `4041a01`
+**Status:** Complete.
+
+### Objective
+
+Make every page and API route explicitly resolve and pass `clientId` instead of relying on query-function defaults. Phase A centralized the resolver; Phase B wires it to every callsite.
+
+### Audit Results
+
+**Already explicit (no changes needed):**
+| Callsite | Status |
+|---|---|
+| `src/lib/queries/actuals.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/queries/vendors.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/queries/headcount.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/queries/contractors.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/queries/kpi.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/services/kpi.service.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/lib/riskEngine.ts` | DEFAULT_CLIENT_ID default — Phase A |
+| `src/app/api/agent/route.ts` | resolveClientId() — Phase A |
+| `src/app/api/agent/executive/route.ts` | resolveSnapshot(resolveClientId()) — Phase A |
+| `src/agents/dataContext.ts` | DEFAULT_CLIENT_ID default — Phase A |
+
+**Updated in Phase B:**
+| File | Change |
+|---|---|
+| `src/app/page.tsx` | Added `resolveClientId()`, passed to 7 callsites: `getMonthlyTotals`, `getByBusinessUnit`, `getOverBudgetContractors`, `getOpenReqs`, `buildDashboardKPIsFromDB`, `generateRiskFlagsAsync`, `getKPIBundle` |
+| `src/app/fpa/page.tsx` | Added `resolveClientId()`, passed to 5 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/app/cfo/page.tsx` | Added `resolveClientId()`, passed to 2 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/app/cio/page.tsx` | Added `resolveClientId()`, passed to 3 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/app/headcount/page.tsx` | Added `resolveClientId()`, passed to 4 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/app/external-labor/page.tsx` | Added `resolveClientId()`, passed to 4 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/app/vendors/page.tsx` | Added `resolveClientId()`, passed to 2 callsites + `<StatsBanner clientId={clientId} />` |
+| `src/components/dashboard/StatsBanner.tsx` | Added `clientId?: string` prop; passes to `getKPIBundle(clientId)` |
+| `src/app/api/agent/orchestrate/route.ts` | Resolve clientId once, thread to live and mock paths |
+| `src/agents/orchestrator.ts` | Added `clientId?` param to `orchestrate()`; passes to `resolveSnapshot(clientId)` |
+| `src/lib/agents/contexts/*.agent.ts` (6) | Voice/persona improvements — immersive, direct CFO-quality rules |
+
+### Remaining `"demo-client"` defaults (intentional)
+
+| File | Reason |
+|---|---|
+| `src/config/client.config.ts:74` | Source of truth literal — must remain |
+| `src/lib/ingestion/field-mapper.ts:140,201,257,308,354` | Ingestion out of scope (Phase B rule #8) |
+| `migrations/002-backfill-client-id.sql` | SQL migration seed — not application code |
+
+### Static data paths (no clientId needed)
+
+`getFinanceSnapshot()`, `generateRiskFlags()` (sync version), `buildDashboardKPIs()` in `src/lib/metrics.ts` (orphaned), and `getMonthlyTotals()`/`getByBusinessUnit()`/`getByCategory()` in `src/data/actuals.ts` are all static TypeScript arrays with no DB calls. No clientId concept applies.
+
+### One pre-existing open item (not Phase B scope)
+
+`generateRiskFlagsAsync()` calls `getByBusinessUnit(undefined, clientId)` — no period filter. On multi-year Databricks databases, this fetches all years' BU spend for cloud overage calculations. Correct for the demo dataset (2026 only). Fix: pass `YTD_CUTOFF` as the period arg in a future sprint.
+
+### Validation
+
+```
+TypeScript: 0 errors  (npx tsc --noEmit)
+Build:      ✓ 29/29  (npm run build)
+Behavior:   unchanged — resolveClientId() returns "demo-client" until auth lands
+```
+
+### Regression Risk
+
+**None.** `resolveClientId()` always returns `"demo-client"`. Passing an explicit value that equals the old default changes nothing about query results, renders, or API responses.
