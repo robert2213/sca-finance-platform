@@ -80,6 +80,9 @@ interface UploadSummary {
   rowsValidated: number;   // mapped rows eligible for staging (0 when blocked)
   rowsStaged: number;      // canonical records accepted by the financial stage
   rowsRejected: number;    // rowsReceived − rowsStaged
+  // ── Sprint 11A.7: Databricks fact_transactions load reporting ──
+  stageBackend: "databricks" | "in-memory" | null; // which stage accepted the rows (null when nothing staged)
+  stageWarnings: string[]; // non-fatal load warnings (e.g. Databricks failed → in-memory fallback)
 }
 
 export async function POST(request: NextRequest) {
@@ -226,6 +229,8 @@ export async function POST(request: NextRequest) {
         rowsValidated: 0,
         rowsStaged: 0,
         rowsRejected: rowCount,
+        stageBackend: null,   // file validation blocked the run; nothing staged
+        stageWarnings: [],
       };
       return NextResponse.json(errorSummary, { status: 422 });
     };
@@ -294,6 +299,8 @@ export async function POST(request: NextRequest) {
     // transformed into canonical financial records and written to the in-memory
     // financial stage. NO fact_transactions / Databricks writes this sprint.
     let rowsStaged = 0;
+    let stageBackend: "databricks" | "in-memory" | null = null;
+    let stageWarnings: string[] = [];
     if (errorCount === 0 && ingest.data.length > 0) {
       const canonical = toCanonicalRecords(dataType, ingest.data, {
         uploadId: record.uploadId,
@@ -302,6 +309,8 @@ export async function POST(request: NextRequest) {
       });
       const outcome = await financialStage.stage(canonical);
       rowsStaged = outcome.staged;
+      stageBackend = outcome.backend ?? null;
+      stageWarnings = outcome.warnings ?? [];
     }
     const rowsReceived = rowCount;
     const rowsValidated = errorCount === 0 ? ingest.rowsMapped : 0;
@@ -336,6 +345,8 @@ export async function POST(request: NextRequest) {
       rowsValidated,
       rowsStaged,
       rowsRejected,
+      stageBackend,
+      stageWarnings,
     };
 
     return NextResponse.json(summary);

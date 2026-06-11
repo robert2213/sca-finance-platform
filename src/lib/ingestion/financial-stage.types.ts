@@ -36,6 +36,18 @@ export interface CanonicalFinancialRecord {
 export interface StageOutcome {
   staged: number;
   rejected: number;
+  /**
+   * Which backend accepted the write (Sprint 11A.7). "databricks" when the
+   * Delta load succeeded; "in-memory" when the in-memory store handled it —
+   * either as the primary store (local mode) or as the fallback after a
+   * Databricks failure. Optional so older callers are unaffected.
+   */
+  backend?: "databricks" | "in-memory";
+  /**
+   * Non-fatal warnings (Sprint 11A.7), e.g. "Databricks load failed; used the
+   * in-memory fallback". Empty/absent on the clean path.
+   */
+  warnings?: string[];
 }
 
 /** Per-upload roll-up of staged rows (for inspection endpoints). */

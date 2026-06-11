@@ -29,7 +29,7 @@ export class InMemoryFinancialStage implements FinancialStage {
         rejected += 1;
       }
     });
-    return { staged, rejected };
+    return { staged, rejected, backend: "in-memory" };
   }
 
   async getByUpload(uploadId: string): Promise<CanonicalFinancialRecord[]> {
