@@ -6626,6 +6626,93 @@ Notes: a deliberately space-headed gl file (`"cost center"`) is **classified cor
 
 ---
 
+## Sprint 11A.6 — Canonical Financial Staging Pipeline
+
+**Date:** 2026-06-11
+**Commit:** `795c26f` (feat) · this handoff entry in the follow-up `docs(handoff)` commit
+**Status:** Complete. (Pre-work: 11A.5 commits `fa367c8`+`668ea97` already on `origin/main`; Vercel native green for `b2e1181`.)
+
+### Objective
+
+Close the ingestion loop: transform validated uploads into **canonical financial records** and **stage** them (in-memory) before any future Delta load. **No `fact_transactions` / Databricks writes this sprint.**
+
+### Audit (Task 1) — where row processing stopped
+
+`ingestFile()` produced `ingest.data` (the mapped records: `ActualEntry[]`, etc.), semantic validation ran on them, but the route persisted only **metadata** (counts/status) to upload history — the mapped records were **discarded**. Row processing stopped right after semantic validation; there was no transform or stage step.
+
+### Architecture
+
+```
+upload
+  → data-type detection (11A.5)
+  → file-structure validation (11A.3)
+  → parse → map (ingest.orchestrator → mappers/*)
+  → semantic validation (11A.3)
+  → TRANSFORM   mapped records ──toCanonicalRecords()──▶ CanonicalFinancialRecord[]   ← NEW (11A.6)
+  → STAGE       financialStage.stage(records)                                          ← NEW (11A.6)
+                     │  financial-stage.resolver.ts (swap point, globalThis singleton)
+                     ▼
+                InMemoryFinancialStage      ──(future)──▶ DatabricksFinancialStage → fact_transactions
+  → history     uploadHistory: uploaded → validated → "staged"
+```
+
+The stage mirrors the 11A.4 upload-history pattern exactly: async `FinancialStage` interface + in-memory impl + resolver. A future `DatabricksFinancialStage` swaps in by editing **only** `financial-stage.resolver.ts`.
+
+### Canonical record (Task 2)
+
+`CanonicalFinancialRecord` — one denormalized, snake_case shape (aligned to the eventual `fact_transactions` columns) that all six types transform into: `upload_id, source_type, source_file, client_id, period, cost_center, cost_center_name, business_unit, category, account_code, amount_actual, amount_budget, amount_forecast, entity_id, entity_name`. Amount mapping per type: gl-actuals → `amount_actual`(+`amount_budget` carried); budget → `amount_budget`; forecast → `amount_forecast`; headcount → `amount_budget` = annual_salary; vendors / external-labor → `amount_actual` = ytd_spend, `amount_budget` = annual_value / contract_value. The mappers are untouched (the transform reads their typed output).
+
+### Files added
+
+| File | Purpose |
+|---|---|
+| `src/lib/ingestion/financial-stage.types.ts` | `CanonicalFinancialRecord`, `FinancialStage` (async), `StageOutcome`, `UploadStageSummary`. |
+| `src/lib/ingestion/financial-record.transformer.ts` | `toCanonicalRecords(dataType, mapped, ctx)` — mapped → canonical for all 6 types. |
+| `src/lib/ingestion/financial-stage.service.ts` | `InMemoryFinancialStage` (process-local; rejects rows missing period/cost_center). |
+| `src/lib/ingestion/financial-stage.resolver.ts` | `getFinancialStage()` + resolved `financialStage` singleton (the swap point). |
+| `src/app/api/ingest/staged/route.ts` | `GET /api/ingest/staged` (totals / `?uploadId=` detail) — additive inspection. |
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `src/app/api/ingest/upload/route.ts` | After validation: transform → `financialStage.stage()`; response gains `rowsReceived`/`rowsValidated`/`rowsStaged`/`rowsRejected`; lifecycle transitions `validated → "staged"` when rows are staged. All existing fields preserved. |
+
+### Row metrics (Task 5)
+
+`rowsReceived` = raw rows parsed · `rowsValidated` = mapped rows eligible for staging (0 when blocked) · `rowsStaged` = canonical records accepted by the stage · `rowsRejected` = `rowsReceived − rowsStaged`. Invariant: **rowsReceived = rowsStaged + rowsRejected**.
+
+### Validation results
+
+```
+Gate 1  TypeScript: 0 errors            (npx tsc --noEmit)
+Gate 2  Build:      ✓ next build — 30/30 pages; /api/ingest/staged registered ƒ; dashboards + agents compiled
+Gate 3  Runtime (explicit dataType; fresh in-memory stage):
+  valid GL        -> 200 status "staged"  received 2 / validated 2 / staged 2 / rejected 0
+  valid Budget    -> 200 status "staged"  2 / 2 / 2 / 0
+  valid Forecast  -> 200 status "staged"  2 / 2 / 2 / 0
+  invalid (empty required category) -> 200 status "failed"  1 / 0 / 0 / 1  (semantic error → NOT staged)
+  GET /staged?uploadId=<gl>  -> canonical rows: gl-actuals, amount_actual=1000/500, amount_budget=1200/400, amount_forecast=0
+  GET /staged?uploadId=<bud> -> amount_budget=1200/400, amount_actual=0   (budget → amount_budget only)
+  GET /staged?uploadId=<fc>  -> amount_forecast=1100/450                  (forecast → amount_forecast only)
+  GET /staged?uploadId=<inv> -> count 0
+  GET /staged (total) -> 6  (2+2+2; invalid not staged)
+  GET /uploads -> 3 "staged" + 1 "failed"  (history reflects the new lifecycle status)
+```
+
+### Remaining Sprint 11 roadmap
+
+1. ✅ 11A.2 staging/history · 2. ✅ 11A.3 file validation · 3. ✅ 11A.4 durable history · 4. ✅ 11A.5 detection · 5. ✅ **11A.6 canonical staging pipeline**.
+6. **`DatabricksFinancialStage` → `fact_transactions` load** — the actual Delta write of staged canonical rows (swap the resolver; create the `fact_transactions` upsert). **Deliberately deferred** (this sprint's hard constraint: do NOT write `fact_transactions` yet).
+7. **Durable financial stage table** (optional intermediate) — persist the staging buffer to Databricks before the fact load, behind the same `FinancialStage` interface.
+8. **Architecture docs** — extend `docs/INGESTION.md` for the full upload → detect → validate → transform → stage → load pipeline.
+
+### Regression risk
+
+**Low / additive.** Five new self-contained files + one route enhancement (response is a strict superset; existing fields unchanged). The transform reads the mappers' output without modifying them; nothing is written to `fact_transactions`/Databricks. The only lifecycle change is `validated → "staged"` (using the `UploadStatus` value reserved for exactly this since 11A.2). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, auth, UI, or legacy `/api/ingest` touched. `795c26f` is import-closed (route → resolver/transformer; transformer → already-tracked `@/lib/models/finance.types`).
+
+---
+
 ## ⚠️ Tooling backlog — CI "Type Check & Lint" job is red (pre-existing, NOT a code defect)
 
 Discovered during 11A.4 pre-work while confirming the deploy gate. **Not fixed this sprint** (out of scope; left for a dedicated tooling pass).
