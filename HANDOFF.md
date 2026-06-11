@@ -6386,3 +6386,85 @@ Windows + OneDrive turns idle `.next/**` files into cloud placeholders; `next de
 ### Regression risk
 
 **Low / additive.** Four new files plus one additive enhancement to the 11A.1 upload route (extra response fields; existing fields unchanged). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, or legacy `/api/ingest` touched. The upload route's response is a superset of 11A.1's, so existing callers are unaffected.
+
+---
+
+## Sprint 11A.3 — File-Structure Validation Framework
+
+**Date:** 2026-06-11
+**Commit:** `6c11a33` (feat) · this handoff entry in the follow-up `docs(handoff)` commit
+**Status:** Complete. (Pre-work confirmed Vercel green on `4861bb4` via the GitHub commit-status API — `gh` CLI is not installed; used `curl https://api.github.com/repos/robert2213/sca-finance-platform/commits/4861bb4/status` → `state: success`.)
+
+### Objective
+
+Add a **file-structure validation layer** that inspects the RAW upload (extension, header row, raw cell values) **before** the V2 parse/map step and **before** the semantic validators (which run on mapped, business-typed records). This is deferred item #3 from 11A.1/11A.2.
+
+```
+Before:  upload →                              parse → map → semantic validation → stage → history
+After:   upload → file-structure validation → parse → map → semantic validation → stage → history
+```
+
+### Architecture — two independent validation layers
+
+| Layer | Operates on | Lives in | Owns |
+|---|---|---|---|
+| **File structure** (NEW) | raw header row + raw cell values + filename | `validation/file-validation.*`, `validation/file-validators/*`, `validation/column-profiles.ts` | extension, empty-file, duplicate-header, required-columns, period **format** |
+| **Semantic** (existing, unchanged) | mapped camelCase records | `validation/validation.runner.ts`, `validation/validators/*` | required fields, period **in-range**, cost-center/account refs, duplicates, anomalies |
+
+Kept **physically separate** per Architecture Requirement #7: separate types, separate runner, and a separate `file-validators/` folder (NOT the semantic `validators/` folder). Future flow stays: file validation → semantic validation → Databricks load.
+
+### Files
+
+| File | Change |
+|---|---|
+| `src/lib/validation/file-validation.types.ts` | **NEW.** `FileValidationResult` `{ status, issues, errorCount, warningCount }`, `FileValidationIssue`, `FileValidationSeverity` (`error`/`warning`). Reuses `ValidationStatus` for one status vocabulary. |
+| `src/lib/validation/file-validation.runner.ts` | **NEW.** `validateFileStructure()` single entrypoint; short-circuits on unsupported/empty, else runs duplicate-header + required-columns + period-format and aggregates. |
+| `src/lib/validation/column-profiles.ts` | **NEW.** `COLUMN_PROFILES` per data type (gl-actuals, budget, forecast, headcount, vendors, external-labor) as **source header aliases** mirroring each mapper's `pick()` candidates, restricted to semantic-required columns; the measure column is `recommended` (missing → warning). Helpers: `normalizeHeader`, `hasAlias`, `findHeader`, `getColumnProfile`. |
+| `src/lib/validation/file-headers.ts` | **NEW.** `extractCsvHeaders`/`extractXlsxHeaders` — read the RAW header row (order + duplicates preserved). Needed because the stack parsers key rows by header and **papaparse silently renames duplicate headers** (`period` → `period_1`), so `Object.keys(row)` cannot see duplicates. |
+| `src/lib/validation/file-validators/unsupported-file.validator.ts` | **NEW.** `SUPPORTED_EXTENSIONS`, `classifyFileType()` (single source of truth, used by the route for parse routing), `validateUnsupportedFile()`. |
+| `src/lib/validation/file-validators/empty-file.validator.ts` | **NEW.** No headers + no rows, or headers + zero rows → error. |
+| `src/lib/validation/file-validators/duplicate-header.validator.ts` | **NEW.** Case-insensitive duplicate headers → error; blank headers → warning. |
+| `src/lib/validation/file-validators/required-columns.validator.ts` | **NEW.** Missing required column → error; missing recommended (measure) column → warning. |
+| `src/lib/validation/file-validators/period-format.validator.ts` | **NEW.** Period column values not ISO `YYYY-MM`/`YYYY-MM-DD` → **warning** (structural advisory; the semantic period validator owns the hard in-range check). |
+| `src/app/api/ingest/upload/route.ts` | **MODIFIED.** Wires file validation in before parse/map; on file error records `failed` and returns a structured **422** without continuing; response gains `fileValidationStatus`/`fileErrors`/`fileWarnings` + `semanticValidationStatus`/`semanticErrors`/`semanticWarnings`. Replaced local `detectFileType` with shared `classifyFileType`. |
+
+### Key decisions
+
+- **Raw header extraction.** Duplicate-header detection requires the un-deduped header row; papaparse renames dup headers and the parsers return objects, so headers are read separately via `file-headers.ts` (cheap `preview:1` CSV parse / `header:1` XLSX read). Confirmed at runtime: the dup-header file showed `period_1` in `sampleRows` but was still correctly rejected.
+- **Format vs. business rule split.** Period **format** is a non-blocking file-layer *warning*; period **in-range** stays a semantic *error*. The `bad-period.csv` test proves both fire in sequence: `fileValidationStatus:"warn"` (advisory) → pipeline proceeds → `semanticValidationStatus:"error"` ("not ISO month format").
+- **Status codes.** Unsupported extension keeps the existing **415** route guard (needed anyway to pick a parser — behavior preserved from 11A.1). Structural failures of a *supported* file return **422** with the full structured body. Semantic-only errors still return **200** with `status:"failed"` (11A.1/11A.2 convention preserved).
+- **Top-level fields are now combined totals.** `validationStatus`/`errorCount`/`warningCount` = file + semantic (+ ingest warnings). Identical to before for clean files (file layer contributes 0). The split is surfaced in the new `file*`/`semantic*` fields. History (`StagedUpload`) stores the combined values — 11A.2 model unchanged.
+- **Decoupling.** File validators take `dataType: string` (like the semantic runner) and import nothing from `ingestion/`, so the layer stays independent of the `DataType` union.
+
+### Validation
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ next build — 30/30 routes; /api/ingest/upload ƒ; legacy /api/ingest ƒ;
+            uploads + uploads/[uploadId] ƒ; all dashboards + agents compiled
+Runtime (curl, single dev process):
+  valid gl-actuals (2 rows)        -> 200  fileStatus pass / semanticStatus pass / readyForStaging true
+  missing required columns         -> 422  fileErrors: business_unit, category  (semanticStatus null)
+  duplicate header "period"        -> 422  fileErrors: duplicate-header          (semanticStatus null)
+  empty file (0 bytes)             -> 422  fileErrors: empty-file
+  header row, no data rows         -> 422  fileErrors: empty-file ("no data rows")
+  unsupported .txt                 -> 415  (route guard, preserved)
+  bad period values "June-2026"    -> 200  fileStatus warn (advisory) + semanticStatus error (in-range)
+  GET /api/ingest/uploads          -> 200  {count:6, …}  (history intact)
+  GET /api/ingest (legacy)         -> 200  (untouched)
+```
+
+### Remaining Sprint 11A work (updated)
+
+1. ~~Staging model + history service~~ ✅ **11A.2**.
+2. ~~File-structure validation foundation~~ ✅ **11A.3**.
+3. **Durable persistence (11A.4)** — `DatabricksUploadHistory` (or a staging table) behind the same `UploadHistoryStore` interface; solves the cross-instance in-memory limitation.
+4. **`dataType` auto-detection** from headers (remove the gl-actuals default) — the new `column-profiles.ts` aliases are a natural basis for header-based detection.
+5. **Stage row data → Databricks load** (the actual write step; the `staged` status lands here).
+6. **Architecture documentation** — extend `docs/INGESTION.md` for upload → file-validation → semantic-validation → stage → load.
+
+### Regression risk
+
+**Low / additive.** Nine new self-contained files plus one additive enhancement to the upload route (response is a strict superset of 11A.2's; existing fields unchanged and numerically identical for clean files). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, or legacy `/api/ingest` touched. The only behavior change is a new early-reject path (**422**) for structurally invalid files. Commit `6c11a33` is **import-closed** (every import resolves to a committed file, an already-tracked module, or an npm package) — the 11A.1 clean-checkout lesson was applied.
+
+**Heads-up (pre-existing, NOT 11A.3):** the working tree has untracked `src/middleware.ts` + `src/lib/auth/` from earlier local work. They are not part of this sprint and not committed here; `6c11a33` does not import them, so it is safe to push on its own. Whoever wires up middleware/auth must commit its full import closure (same trap as the 11A.1 Vercel "Module not found").
