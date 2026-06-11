@@ -1,6 +1,6 @@
 # Nexora AI Finance — Project Handoff Document
 
-**Last updated:** June 9, 2026 (Session E)  
+**Last updated:** June 11, 2026 (Sprint 11A.7)  
 **Repository:** `nexora-ai-finance` (local) · `robert2213/sca-finance-platform` (GitHub)  
 **Author note:** This document is written for a developer taking over the project cold. Every section reflects the actual codebase as of the most recent session.
 
@@ -6710,6 +6710,137 @@ Gate 3  Runtime (explicit dataType; fresh in-memory stage):
 ### Regression risk
 
 **Low / additive.** Five new self-contained files + one route enhancement (response is a strict superset; existing fields unchanged). The transform reads the mappers' output without modifying them; nothing is written to `fact_transactions`/Databricks. The only lifecycle change is `validated → "staged"` (using the `UploadStatus` value reserved for exactly this since 11A.2). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, auth, UI, or legacy `/api/ingest` touched. `795c26f` is import-closed (route → resolver/transformer; transformer → already-tracked `@/lib/models/finance.types`).
+
+---
+
+## Sprint 11A.7 — DatabricksFinancialStage → fact_transactions Load
+
+**Date:** 2026-06-11
+**Commit:** `eb57f66` (feat) · this handoff entry in the follow-up `docs(handoff)` commit
+**Status:** Complete. (Pre-work: 11A.6 commits `795c26f`+`53ce126` already on `origin/main`; branch up to date with origin.)
+
+### Objective
+
+Close the ingestion loop: load the staged `CanonicalFinancialRecord[]` (11A.6) into Databricks **`fact_transactions`** — the central fact table read by every dashboard, KPI, agent, and risk query — behind the existing `FinancialStage` interface/resolver. **INSERT-only, additive, non-destructive.** Final pipeline:
+
+```
+upload → detect → file-validate → parse → map → semantic-validate
+       → transform (toCanonicalRecords) → STAGE → fact_transactions → dashboards/agents
+```
+
+### Audit (Task 1) — where staging stopped
+
+`financial-stage.resolver.ts` always returned `InMemoryFinancialStage` (the 11A.6 hard constraint), so canonical records never reached Delta. `fact_transactions` (see `src/lib/schema/ddl.ts`) had **no** ingestion-lineage columns — only `client_id`. Dashboard/KPI reads filter `WHERE transaction_type IN ('actual','budget')`, so the load must stamp `transaction_type` honestly. The legacy `writer.ts` confirmed the 15-column fact contract and the chunked-write pattern.
+
+### Architecture
+
+```
+financialStage.stage(records)
+   │  financial-stage.resolver.ts  (swap point, globalThis singleton)
+   ▼
+getConnectionMode()==="databricks"  ──▶  DatabricksFinancialStage ──INSERT──▶ fact_transactions
+        │  (DATABRICKS_HOST/TOKEN/HTTP_PATH set)        │ on ANY error: warn + delegate
+        │                                               ▼
+        └── else ─────────────────────────────▶  InMemoryFinancialStage  (primary in local mode;
+                                                                            injected fallback in DB mode)
+```
+
+Exact mirror of the 11A.4 `DatabricksUploadHistory` pattern: Databricks-first, injected in-memory fallback, never breaks the endpoint. The resolver is the **only** swap point.
+
+### Databricks column mapping (Tasks 2 & 3)
+
+`CanonicalFinancialRecord` → `fact_transactions` (full table documented in `migrations/004` header):
+
+| Canonical | fact_transactions column | Notes |
+|---|---|---|
+| (generated) | `transaction_id` | `${upload_id}-<6-digit idx>` — unique, NOT NULL, embeds upload_id |
+| `period` + `-01` | `date` | `CAST(? AS DATE)`, first of fiscal month |
+| `period` | `period` | partition key |
+| `cost_center` | `cost_center_id` | |
+| `cost_center_name` | `cost_center_name` | |
+| `entity_id` (vendors only) | `vendor_id` | `""` for non-vendor types |
+| `category` | `category` | |
+| — | `subcategory` | `""` (not in canonical record) |
+| `business_unit` | `business_unit` | |
+| `amount_actual/budget/forecast` | same | DOUBLE |
+| `source_type` → derived | `transaction_type` | gl-actuals→`actual`, budget→`budget`, forecast→`forecast`, headcount→`budget`, vendors→`actual`, external-labor→`actual` |
+| `"upload"` | `source_system` | marks ingestion-pipeline rows |
+| `client_id` | `client_id` | |
+| `upload_id` | `upload_id` **(NEW, migration 004)** | lineage → `ingest_upload_history` |
+| `source_file` | `source_file` **(NEW)** | lineage |
+| `source_type` | `source_type` **(NEW)** | lineage |
+| `current_timestamp()` | `ingested_at` **(NEW)** | load time |
+
+`account_code` and `entity_name` are intentionally **not** persisted (no fact column) — lossy on load, documented.
+
+### Migration (Task 2 — NOT auto-run)
+
+`migrations/004-fact-transactions-ingest-lineage.sql`: `ALTER TABLE fact_transactions ADD COLUMNS (upload_id, source_file, source_type, ingested_at)` — all nullable, additive, rewrites no data, touches no existing row (demo rows keep NULL). Run once, manually, against the warehouse. Until it runs, the Databricks INSERT fails on the missing `upload_id` column and the loader falls back to in-memory — identical to the 11A.4 pre-migration contract.
+
+### Files added
+
+| File | Purpose |
+|---|---|
+| `src/lib/ingestion/databricks-financial-stage.service.ts` | `DatabricksFinancialStage`: chunked INSERT-only load + Databricks-backed reads (`getByUpload`/`count`/`listUploadSummaries` by `upload_id`); injected in-memory fallback on any error. |
+| `migrations/004-fact-transactions-ingest-lineage.sql` | Adds the 4 nullable lineage columns + documents the full column mapping. |
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `src/lib/ingestion/financial-stage.resolver.ts` | Selects `DatabricksFinancialStage` when `getConnectionMode()==="databricks"` (in-memory injected as fallback); else in-memory. The swap point. |
+| `src/lib/ingestion/financial-stage.types.ts` | `StageOutcome` gains optional `backend` + `warnings` (additive). |
+| `src/lib/ingestion/financial-stage.service.ts` | In-memory `stage()` now tags `backend:"in-memory"`. |
+| `src/app/api/ingest/upload/route.ts` | Captures `outcome.backend`/`outcome.warnings`; response gains `stageBackend`/`stageWarnings` (strict superset; `rowsStaged` already reflects rows written; lifecycle `validated → staged` unchanged). |
+
+### Validation results
+
+```
+Gate 1  TypeScript: 0 errors            (npx tsc --noEmit)
+Gate 2  Build:      ✓ next build — 30/30 pages; ingest routes ƒ; dashboards + agents compiled
+Gate 3  Runtime — DATABRICKS mode (real .env.local creds → live warehouse, port 3000):
+  valid GL       -> 200 status "staged"  10/10/10/0  stageBackend "in-memory"  (DB INSERT reached
+                    fact_transactions; first 15 cols resolved, failed only on upload_id → migration 004
+                    not yet applied → graceful fallback; warning surfaced in stageWarnings)
+  valid Budget   -> 200 status "staged"  10/10/10/0  (same fallback)
+  valid Forecast -> 200 status "staged"  5/5/5/0     (same fallback)
+  invalid GL (empty required category) -> 200 status "failed"  1/0/0/1  stageBackend null  (NOT staged)
+  GET /staged       -> totalRecords 25; per-upload summaries correct (gl 10, budget 10, forecast 5)
+  GET /uploads      -> 3 "staged" + 1 "failed"
+Gate 3  Runtime — LOCAL mode (Databricks env emptied, port 3100):
+  valid GL       -> 200 status "staged"  10  stageBackend "in-memory"  stageWarnings []  (clean path,
+                    DatabricksFinancialStage NOT selected → no warnings; proves no regression)
+Gate 4  Databricks verify-by-upload_id: N/A until migration 004 runs (table has no upload_id column yet).
+        The live INSERT failure enumerated the exact existing columns
+        [transaction_id, date, period, cost_center_id, cost_center_name, …] — proving the base-column
+        mapping matches the real schema. Atomic rejection: no partial/garbage rows written.
+```
+
+### Fallback behavior
+
+Three layers, all verified against the **live** warehouse:
+1. **Databricks configured + table ready (post-migration):** rows INSERTed into `fact_transactions`, `backend:"databricks"`, no warnings. *(Activates once migration 004 is run.)*
+2. **Databricks configured + table not ready / unreachable:** INSERT fails → full batch handed to in-memory fallback → `backend:"in-memory"` + `stageWarnings`; upload still `"staged"`, endpoint never breaks. *(Current observed state.)*
+3. **Databricks not configured (local dev):** in-memory primary, `backend:"in-memory"`, no warnings — identical to 11A.6.
+
+### Known risks
+
+- **Migration 004 must be run to activate the real Delta load.** Until then every upload makes one failing INSERT round-trip + falls back (self-healing, non-fatal — same as 11A.4 before migration 003). *(Side note observed: `ingest_upload_history` (migration 003) is also unrun on this warehouse, so 11A.4 history is in fallback too — pre-existing, separate.)*
+- **Duplicate-upload dedup deferred (Task 8):** re-uploading the same file creates a new `upload_id` and a fresh set of rows (INSERT-only, no upsert). Documented, not solved this sprint.
+- **Forecast rows** load as `transaction_type='forecast'`, which the existing KPI/dashboard filter `IN ('actual','budget')` excludes — a pre-existing query behavior; not modified this sprint (KPI/dashboard untouched per the sprint rules).
+- **`account_code` / `entity_name`** are not persisted (no fact column) — `getByUpload` reconstructs records best-effort.
+
+### Remaining ingestion roadmap
+
+1. ✅ 11A.2 staging/history · 2. ✅ 11A.3 file validation · 3. ✅ 11A.4 durable history · 4. ✅ 11A.5 detection · 5. ✅ 11A.6 canonical staging · 6. ✅ **11A.7 Databricks fact_transactions load**.
+7. **Operational:** run `migrations/004` (and `003`) against the warehouse to activate the real load + durable history; then re-validate Gate 4 (`SELECT COUNT(*) ... WHERE upload_id = ?`).
+8. **Durable financial stage table** (optional intermediate) — persist the staging buffer to Databricks before the fact load, behind the same `FinancialStage` interface.
+9. **Idempotent re-upload** — dedup/replace by `(upload_id)` or natural key (MERGE) once required.
+10. **Architecture docs** — extend `docs/INGESTION.md` for the full upload → detect → validate → transform → stage → load pipeline.
+
+### Regression risk
+
+**Low / additive.** Two new files + four additive edits (response/`StageOutcome` are strict supersets; existing fields unchanged). INSERT-only — no MERGE/UPDATE/DELETE/TRUNCATE, demo rows never touched. Databricks gated behind env + self-healing fallback (proven against the live warehouse). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, auth, UI, or legacy `/api/ingest` touched. `eb57f66` is import-closed (resolver → service; service → already-tracked `@/lib/databricks` + `@/config/client.resolver`).
 
 ---
 
