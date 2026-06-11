@@ -6468,3 +6468,98 @@ Runtime (curl, single dev process):
 **Low / additive.** Nine new self-contained files plus one additive enhancement to the upload route (response is a strict superset of 11A.2's; existing fields unchanged and numerically identical for clean files). No dashboards, agents, KPI logic, risk engine, role-analysis-engine, client config, or legacy `/api/ingest` touched. The only behavior change is a new early-reject path (**422**) for structurally invalid files. Commit `6c11a33` is **import-closed** (every import resolves to a committed file, an already-tracked module, or an npm package) — the 11A.1 clean-checkout lesson was applied.
 
 **Heads-up (pre-existing, NOT 11A.3):** the working tree has untracked `src/middleware.ts` + `src/lib/auth/` from earlier local work. They are not part of this sprint and not committed here; `6c11a33` does not import them, so it is safe to push on its own. Whoever wires up middleware/auth must commit its full import closure (same trap as the 11A.1 Vercel "Module not found").
+
+---
+
+## Sprint 11A.4 — Durable Upload History (Databricks) with In-Memory Fallback
+
+**Date:** 2026-06-11
+**Commit:** `de340fd` (feat) · this handoff entry in the follow-up `docs(handoff)` commit
+**Status:** Complete. (Pre-work: pushed 11A.3 — `origin/main` now at `1cbe15d`. See the **CI / deploy note** below re: the Vercel gate; per instruction, the gate was treated as satisfied by green local `tsc` + `build`.)
+
+### Objective
+
+Replace the process-local in-memory upload history with a **durable, Databricks-backed** store behind the same `UploadHistoryStore` abstraction, advancing `… → Stage metadata → In-memory history` to `… → Stage metadata → Durable history in Databricks`. The in-memory store remains as both the local-dev backend and a **runtime fallback**.
+
+### Audit (Task 1) — key finding
+
+The `DBAdapter.query` seam (`src/lib/databricks.ts`) is **async**, but the 11A.2 `UploadHistoryStore` was **synchronous** — a Databricks store cannot satisfy a sync contract, and the required runtime fallback needs to catch async failures. **Resolution: the interface is now async** (Promise-returning). The contract (same name, same 4 methods, routes depend only on the abstraction) is preserved; only the return types changed. Only the 3 ingest routes consumed the store, so the blast radius was small.
+
+### Architecture
+
+```
+routes ──import──▶ uploadHistory  (resolved UploadHistoryStore)
+                         │  upload-history.resolver.ts — getUploadHistoryStore()
+                         ▼
+        getConnectionMode()==="databricks"  ?  DatabricksUploadHistory(fallback)  :  InMemoryUploadHistory
+                                                      │ try Databricks; on error → warn + delegate
+                                                      ▼
+                                               InMemoryUploadHistory (injected fallback)
+```
+
+- **Backend selection** mirrors the existing adapter rule: Databricks when `DATABRICKS_HOST`/`DATABRICKS_TOKEN`/`DATABRICKS_HTTP_PATH` are all set (`getConnectionMode()`), else in-memory. Resolved once and cached on `globalThis`.
+- **Fallback is injected, not imported**, into `DatabricksUploadHistory` — avoids a resolver↔store import cycle.
+- **Table**: `nexora.finance.ingest_upload_history`, qualified from `DATABRICKS_CATALOG`/`DATABRICKS_SCHEMA` (defaults `nexora`/`finance`). `client_id` is stamped from `DEFAULT_CLIENT_ID`; `listUploads` filters by it. The `StagedUpload` domain model is unchanged (no `clientId` field — it is a DB-only column for future multi-tenant filtering).
+
+### Files
+
+| File | Change |
+|---|---|
+| `migrations/003-ingest-upload-history.sql` | **NEW.** Delta DDL for `nexora.finance.ingest_upload_history` (all 16 columns from the spec). Idempotent `CREATE TABLE IF NOT EXISTS`; **run manually** — not executed by the app. |
+| `src/lib/ingestion/databricks-upload-history.service.ts` | **NEW.** `DatabricksUploadHistory implements UploadHistoryStore` via `dbQuery()`. INSERT/SELECT/UPDATE with `?`-params; per-method try-Databricks-else-injected-fallback; loose-type coercion (BIGINT/BOOLEAN/TIMESTAMP) on read. |
+| `src/lib/ingestion/upload-history.resolver.ts` | **NEW.** `getUploadHistoryStore()` factory + resolved `uploadHistory` singleton (globalThis-guarded). |
+| `src/lib/ingestion/staging.types.ts` | **MODIFIED.** `UploadHistoryStore` methods now return Promises. |
+| `src/lib/ingestion/upload-history.service.ts` | **MODIFIED.** `InMemoryUploadHistory` async; `generateUploadId` exported; the active-store binding moved to the resolver. |
+| `src/app/api/ingest/upload/route.ts` | **MODIFIED.** Import resolved store; `await` the 4 store calls (both branches). |
+| `src/app/api/ingest/uploads/route.ts` | **MODIFIED.** Import resolved store; `await listUploads()`. |
+| `src/app/api/ingest/uploads/[uploadId]/route.ts` | **MODIFIED.** Import resolved store; `await getUpload()`. |
+
+### Migration instructions
+
+1. Ensure `DATABRICKS_HOST`/`TOKEN`/`HTTP_PATH` are set in the deploy environment (and optionally `DATABRICKS_CATALOG`/`SCHEMA`).
+2. Run `migrations/003-ingest-upload-history.sql` once in the Databricks SQL editor / warehouse (after `001`+`002`, consistent with the `nexora.finance` namespace).
+3. No app restart needed for correctness — until the table exists, uploads transparently use the in-memory fallback; once it exists, writes/reads land in Databricks.
+
+### Fallback behavior (Tasks 6 & 7)
+
+If a Databricks read/write fails (warehouse unreachable, **table not yet created**, query error): the store logs `"[upload-history] Databricks <op> failed; falling back to in-memory store: <msg>"` and delegates that call to the injected `InMemoryUploadHistory`. The upload endpoint **never breaks**. Known limitation: under *partial* Databricks availability (e.g. INSERT succeeds but a later UPDATE fails) a status transition can land in the fallback instead of Databricks; under full unavailability all calls share one fallback instance and stay consistent within the process.
+
+### Validation
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ next build — 30/30 routes; ingest routes all ƒ; dashboards + agents compiled
+Runtime — IN-MEMORY mode (no Databricks env):
+  GET  /api/ingest/upload          -> 200 info
+  POST /api/ingest/upload (valid)  -> 200 {uploadId, status:"validated", readyForStaging:true}
+  GET  /api/ingest/uploads         -> 200 {count:1, uploads:[…]}
+  GET  /api/ingest/uploads/{id}    -> 200 full record   ·   {bad} -> 404
+Runtime — FALLBACK mode (bogus DATABRICKS_* env → Databricks selected, connection refused):
+  POST /api/ingest/upload (valid)  -> 200 {uploadId, status:"validated"}   (via in-memory fallback)
+  server log: "[upload-history] Databricks addUpload/updateStatus/listUploads failed; falling back…"
+  GET  /api/ingest/uploads         -> 200 {count:1, …}
+```
+
+### Remaining Sprint 11A work (updated)
+
+1. ~~Staging model + history service~~ ✅ **11A.2**.
+2. ~~File-structure validation foundation~~ ✅ **11A.3**.
+3. ~~Durable upload-history persistence~~ ✅ **11A.4**.
+4. **`dataType` auto-detection** from headers (remove the gl-actuals default) — basis: `column-profiles.ts` aliases.
+5. **Stage row data → `fact_transactions` load** (the actual financial-row write; `staged` status lands here). *Explicitly deferred — not started.*
+6. **Architecture documentation** — extend `docs/INGESTION.md` for upload → file-validation → semantic-validation → stage → durable-history → load.
+
+### Regression risk
+
+**Low / additive.** Three new files; five modified (interface async-ification + `await`s + import repoint). In-memory mode is behaviorally identical to 11A.3 (runtime-verified). Databricks mode is gated entirely behind env config and self-heals via fallback, so a missing table or warehouse cannot break the endpoint. No fact rows written. No dashboards, agents, KPIs, risk engine, role-analysis-engine, client config, auth, UI, or legacy `/api/ingest` touched. Commit `de340fd` is import-closed (resolver/store imports resolve to committed files, already-tracked `@/lib/databricks` + `@/config/client.resolver`, or the `@databricks/sql` npm package).
+
+---
+
+## ⚠️ Tooling backlog — CI "Type Check & Lint" job is red (pre-existing, NOT a code defect)
+
+Discovered during 11A.4 pre-work while confirming the deploy gate. **Not fixed this sprint** (out of scope; left for a dedicated tooling pass).
+
+- **Symptom:** the GitHub Actions workflow `.github/workflows/deploy.yml` job **"Type Check & Lint"** fails on every recent commit (4861bb4, 6c11a33, 1cbe15d). Because `build` *needs* `quality` and `deploy` *needs* `build`, the **Action-based "Deploy to Vercel" job is skipped** for all these commits.
+- **Root cause:** the job's `npm run lint` step runs `next lint`, but **no ESLint config file (`.eslintrc*`) is committed**. With no config, `next lint` becomes *interactive* ("How would you like to configure ESLint? Strict / Base / Cancel") and exits non-zero in CI. `npx tsc --noEmit` passes — the failure is purely the lint step. `next build` passes because it *skips* linting when no config exists (it does not prompt).
+- **Why deploys still happen:** **Vercel's native Git integration is the real deploy path** — it deploys pushes independently of the (skipped) Action and posts the legacy "Vercel" commit status (it showed `success` on 4861bb4). The GitHub-Action deploy job has effectively been dormant.
+- **Fix when ready (separate tooling task):** add a minimal `.eslintrc.json` (e.g. `{ "extends": "next/core-web-vitals" }`) so `next lint` is non-interactive in CI; then the `quality` → `build` → `deploy` chain can go green. Verify locally with `npm run lint` (must exit 0 without prompting). Do **not** bundle this with feature sprints.
