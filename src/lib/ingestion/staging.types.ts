@@ -44,16 +44,19 @@ export type NewUploadInput = Omit<StagedUpload, "uploadId" | "uploadedAt" | "sta
 /**
  * Storage abstraction for upload history. API routes depend on this interface
  * only — never on a concrete implementation — so the in-memory store can be
- * swapped for a durable (e.g. Databricks-backed) one in a later sprint without
- * changing any route.
+ * swapped for a durable (e.g. Databricks-backed) one without changing any route.
+ *
+ * Async (Sprint 11A.4): methods return Promises so a Databricks-backed
+ * implementation (which performs async SQL I/O) can satisfy the same contract.
+ * The in-memory implementation simply resolves immediately.
  */
 export interface UploadHistoryStore {
-  /** Register a new upload; returns the created record (status: "uploaded"). */
-  addUpload(input: NewUploadInput): StagedUpload;
+  /** Register a new upload; resolves to the created record (status: "uploaded"). */
+  addUpload(input: NewUploadInput): Promise<StagedUpload>;
   /** Fetch one record by id, or undefined if not found. */
-  getUpload(uploadId: string): StagedUpload | undefined;
+  getUpload(uploadId: string): Promise<StagedUpload | undefined>;
   /** All records, most recent first. */
-  listUploads(): StagedUpload[];
-  /** Transition a record's status; returns the updated record, or undefined if not found. */
-  updateStatus(uploadId: string, status: UploadStatus): StagedUpload | undefined;
+  listUploads(): Promise<StagedUpload[]>;
+  /** Transition a record's status; resolves to the updated record, or undefined if not found. */
+  updateStatus(uploadId: string, status: UploadStatus): Promise<StagedUpload | undefined>;
 }

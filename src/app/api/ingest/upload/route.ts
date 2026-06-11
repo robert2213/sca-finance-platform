@@ -9,7 +9,7 @@ import { validateFileStructure } from "@/lib/validation/file-validation.runner";
 import { extractCsvHeaders, extractXlsxHeaders } from "@/lib/validation/file-headers";
 import { classifyFileType } from "@/lib/validation/file-validators/unsupported-file.validator";
 import type { FileValidationIssue } from "@/lib/validation/file-validation.types";
-import { uploadHistory } from "@/lib/ingestion/upload-history.service";
+import { uploadHistory } from "@/lib/ingestion/upload-history.resolver";
 import type { UploadStatus } from "@/lib/ingestion/staging.types";
 import defaultConfig from "@/config/client.config";
 
@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     // If file structure is invalid, record the failure and STOP — do not parse,
     // map, semantically validate, or stage. Return a structured 422.
     if (fileValidation.status === "error") {
-      const failed = uploadHistory.addUpload({
+      const failed = await uploadHistory.addUpload({
         fileName: file.name,
         fileType,
         dataType,
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         warningCount: fileWarnings.length,
         readyForStaging: false,
       });
-      uploadHistory.updateStatus(failed.uploadId, "failed");
+      await uploadHistory.updateStatus(failed.uploadId, "failed");
 
       const errorSummary: UploadSummary = {
         uploadId: failed.uploadId,
@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
     // ── 4. STAGE + HISTORY (Sprint 11A.2, in-memory) ──
     // Lifecycle: addUpload() registers as "uploaded", then we transition to the
     // post-validation status. ("staged" is reserved for the future load step.)
-    const record = uploadHistory.addUpload({
+    const record = await uploadHistory.addUpload({
       fileName: file.name,
       fileType,
       dataType,
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
       readyForStaging,
     });
     const status: UploadStatus = errorCount > 0 ? "failed" : "validated";
-    uploadHistory.updateStatus(record.uploadId, status);
+    await uploadHistory.updateStatus(record.uploadId, status);
 
     const summary: UploadSummary = {
       uploadId: record.uploadId,

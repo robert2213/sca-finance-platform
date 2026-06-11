@@ -1,12 +1,15 @@
-// Upload history service (Sprint 11A.2).
+// Upload history — in-memory store (Sprint 11A.2; async-ified in 11A.4).
 //
-// In-memory persistence only — no Databricks, no DB tables, no filesystem.
-// The goal is to validate the service/route architecture before introducing
-// durable storage. Because each Vercel route runs as a separate serverless
-// function, this store is NOT shared across routes in production; that is an
-// accepted limitation of the in-memory phase and the reason durable storage
-// (DatabricksUploadHistory) is the planned 11A.4 replacement. Within a single
-// process (local `next dev` / `next start`) all routes share one instance.
+// InMemoryUploadHistory is the process-local store. It is BOTH the local-dev
+// store (when Databricks is not configured) AND the runtime fallback used by
+// DatabricksUploadHistory when a Databricks read/write fails. The ACTIVE store
+// is chosen in upload-history.resolver.ts.
+//
+// The UploadHistoryStore interface is async (11A.4) so a Databricks-backed
+// implementation can satisfy the same contract; these in-memory methods are
+// trivially async. Because each Vercel route runs as a separate serverless
+// function, this store is NOT shared across routes in production — that is the
+// limitation durable (Databricks) storage solves.
 
 import type {
   StagedUpload,
@@ -15,7 +18,8 @@ import type {
   UploadHistoryStore,
 } from "./staging.types";
 
-function generateUploadId(): string {
+/** Generate an application-side upload id: upl_<base36 ts>_<base36 rand>. */
+export function generateUploadId(): string {
   const ts = Date.now().toString(36);
   const rand = Math.random().toString(36).slice(2, 8);
   return `upl_${ts}_${rand}`;
@@ -26,7 +30,7 @@ export class InMemoryUploadHistory implements UploadHistoryStore {
   // Map preserves insertion order, which we use directly for "most recent first".
   private readonly records = new Map<string, StagedUpload>();
 
-  addUpload(input: NewUploadInput): StagedUpload {
+  async addUpload(input: NewUploadInput): Promise<StagedUpload> {
     const record: StagedUpload = {
       ...input,
       uploadId: generateUploadId(),
@@ -37,16 +41,16 @@ export class InMemoryUploadHistory implements UploadHistoryStore {
     return record;
   }
 
-  getUpload(uploadId: string): StagedUpload | undefined {
+  async getUpload(uploadId: string): Promise<StagedUpload | undefined> {
     return this.records.get(uploadId);
   }
 
-  listUploads(): StagedUpload[] {
+  async listUploads(): Promise<StagedUpload[]> {
     // Insertion order reversed → most recent first (deterministic, no timestamp ties).
     return Array.from(this.records.values()).reverse();
   }
 
-  updateStatus(uploadId: string, status: UploadStatus): StagedUpload | undefined {
+  async updateStatus(uploadId: string, status: UploadStatus): Promise<StagedUpload | undefined> {
     const existing = this.records.get(uploadId);
     if (!existing) return undefined;
     // Re-setting an existing key preserves its insertion position in the Map.
@@ -55,18 +59,3 @@ export class InMemoryUploadHistory implements UploadHistoryStore {
     return updated;
   }
 }
-
-// ─── Active store — the single swap point ─────────────────────────────────────
-// Routes import `uploadHistory` (typed as UploadHistoryStore) and never the
-// concrete class. To adopt durable storage later, replace the instance below
-// with e.g. `new DatabricksUploadHistory(...)` — no route changes required.
-//
-// Stored on globalThis so the singleton survives Next.js dev hot-reloads (which
-// re-evaluate modules) and is shared by every route within the same process.
-const globalForUploadHistory = globalThis as unknown as {
-  __nexoraUploadHistory?: UploadHistoryStore;
-};
-
-export const uploadHistory: UploadHistoryStore =
-  globalForUploadHistory.__nexoraUploadHistory ??
-  (globalForUploadHistory.__nexoraUploadHistory = new InMemoryUploadHistory());
