@@ -6,6 +6,7 @@ import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { getVendors } from "@/lib/queries";
 import { generateRiskFlagsAsync } from "@/lib/riskEngine";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency, formatDate, daysUntil, isExpiringSoon } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -23,9 +24,10 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function VendorsPage() {
+  const clientId = resolveClientId();
   const [vendors, allRisks] = await Promise.all([
-    getVendors(),
-    generateRiskFlagsAsync(),
+    getVendors(clientId),
+    generateRiskFlagsAsync(clientId),
   ]);
   const today      = new Date().toISOString().slice(0, 10);
   const in180      = new Date();
@@ -57,7 +59,7 @@ export default async function VendorsPage() {
       subtitle="Contract management · Spend analysis · Renewal pipeline"
       badge="Procurement Agent"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       <section className="mb-8">
         <SectionHeader label="Key Performance Indicators" sub="Vendor portfolio health" />

@@ -8,6 +8,7 @@ import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { generateRiskFlagsAsync, generateRecommendedActions } from "@/lib/riskEngine";
 import { getYTDSummary } from "@/lib/queries";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 
@@ -24,9 +25,10 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function CFOPage() {
+  const clientId = resolveClientId();
   const [risks, ytd] = await Promise.all([
-    generateRiskFlagsAsync(),
-    getYTDSummary(),
+    generateRiskFlagsAsync(clientId),
+    getYTDSummary(clientId),
   ]);
   const actions = generateRecommendedActions();
   const { actual: ytdActual, budget: ytdBudget, variance: ytdVar, variancePct: ytdVarPct } = ytd;
@@ -62,7 +64,7 @@ export default async function CFOPage() {
       subtitle="Executive financial performance · AI-generated commentary and risk analysis"
       badge="CFO Agent"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       {/* KPIs */}
       <section className="mb-8">

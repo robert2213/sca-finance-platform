@@ -6,6 +6,7 @@ import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import KPICard from "@/components/dashboard/KPICard";
 import { getMonthlyTotals, getByBusinessUnit, getByCategory, getActualsByPeriod, getYTDSummary, YTD_CUTOFF } from "@/lib/queries";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -23,12 +24,13 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function FPAPage() {
+  const clientId = resolveClientId();
   const [monthly, byBU, byCat, mayActuals, ytd] = await Promise.all([
-    getMonthlyTotals(2026),
-    getByBusinessUnit(YTD_CUTOFF),
-    getByCategory(YTD_CUTOFF),
-    getActualsByPeriod("2026-05"),
-    getYTDSummary(),
+    getMonthlyTotals(2026, clientId),
+    getByBusinessUnit(YTD_CUTOFF, clientId),
+    getByCategory(YTD_CUTOFF, clientId),
+    getActualsByPeriod("2026-05", clientId),
+    getYTDSummary(clientId),
   ]);
 
   const ytdActual = ytd.actual;
@@ -77,7 +79,7 @@ export default async function FPAPage() {
       subtitle="Budget vs. Actuals · Variance Drivers · Full-Year Forecast"
       badge="FP&A Agent"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       <section className="mb-8">
         <SectionHeader label="Key Performance Indicators" sub="YTD May 2026 · variance metrics" />

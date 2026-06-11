@@ -8,6 +8,7 @@ import {
   getContractors, getOverBudgetContractors, getEndingSoonContractors,
   getContractorsByBU,
 } from "@/lib/queries";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -25,11 +26,12 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function ExternalLaborPage() {
+  const clientId = resolveClientId();
   const [contractors, overBudget, endingSoon, byBU] = await Promise.all([
-    getContractors(),
-    getOverBudgetContractors(),
-    getEndingSoonContractors(90),
-    getContractorsByBU(),
+    getContractors(clientId),
+    getOverBudgetContractors(clientId),
+    getEndingSoonContractors(90, clientId),
+    getContractorsByBU(clientId),
   ]);
   const ytdSpend  = contractors.reduce((s, c) => s + c.ytdSpend, 0);
   const ytdBudget = contractors.reduce((s, c) => s + c.budget, 0);
@@ -66,7 +68,7 @@ export default async function ExternalLaborPage() {
       subtitle="Contractor spend · Burn rate · SOW compliance · Budget tracking"
       badge="External Labor Agent"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       <section className="mb-8">
         <SectionHeader label="Key Performance Indicators" sub="Contractor spend vs. approved SOW budgets" />

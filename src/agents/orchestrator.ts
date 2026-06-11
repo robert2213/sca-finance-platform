@@ -163,13 +163,16 @@ export async function orchestrate(
   question: string,
   orchestrationType: OrchestrationType = "full-board",
   customAgents?: AgentId[],
-  snapshotOverride?: FinanceSnapshot
+  snapshotOverride?: FinanceSnapshot,
+  clientId?: string
 ): Promise<OrchestrationResult> {
   const startMs = Date.now();
 
   // Resolve the Databricks-backed snapshot once (falls back to static on error).
   // Shared by every mock agent dispatch and by the synthesis summary.
-  const snapshot = snapshotOverride ?? await resolveSnapshot();
+  // clientId is threaded from the API route; resolveSnapshot() falls back to
+  // DEFAULT_CLIENT_ID when it is undefined, preserving demo-client behavior.
+  const snapshot = snapshotOverride ?? await resolveSnapshot(clientId);
 
   // Determine which agents to involve
   const agentIds: AgentId[] =

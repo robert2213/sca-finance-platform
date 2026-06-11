@@ -12,6 +12,7 @@ import {
   getTotalCloudSpendByMonth, getCloudByProvider,
 } from "@/data/cloudSpend";
 import { getYTDSummary, getHCSummary, getContractors } from "@/lib/queries";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -31,10 +32,11 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 export default async function CIOPage() {
   const cloudByMonth   = getTotalCloudSpendByMonth();
   const cloudProviders = getCloudByProvider();
+  const clientId = resolveClientId();
   const [ytd, hc, allContractors] = await Promise.all([
-    getYTDSummary(),
-    getHCSummary(),
-    getContractors(),
+    getYTDSummary(clientId),
+    getHCSummary(clientId),
+    getContractors(clientId),
   ]);
   const totalIT    = ytd.actual;
   const itBudget   = ytd.budget;
@@ -78,7 +80,7 @@ export default async function CIOPage() {
       subtitle="IT investment summary · Cloud trends · Executive talking points"
       badge="CIO Finance Partner"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       <section className="mb-8">
         <SectionHeader label="Key Performance Indicators" sub="IT investment metrics · YTD May 2026" />

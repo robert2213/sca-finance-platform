@@ -82,13 +82,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "question is required" }, { status: 400 });
     }
 
+    // Resolve the active tenant once; thread it through both the live and mock paths.
+    const clientId = resolveClientId();
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     if (apiKey) {
       // ── Live Claude path: run all agents in parallel ──────────────────────
       const client   = new Anthropic({ apiKey });
       // Databricks-backed snapshot (falls back to static getFinanceSnapshot() on error/missing env)
-      const snapshot = await resolveSnapshot(resolveClientId());
+      const snapshot = await resolveSnapshot(clientId);
 
       const agentIds: AgentId[] =
         orchestrationType === "custom" && customAgents?.length
@@ -134,7 +136,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Mock path ─────────────────────────────────────────────────────────────
-    const result = await orchestrate(question, orchestrationType, customAgents);
+    const result = await orchestrate(question, orchestrationType, customAgents, undefined, clientId);
     console.log(`[Orchestrate] Mock | ${result.agentsInvolved.length} agents | ${Date.now() - startMs}ms`);
     return NextResponse.json({ ...result, durationMs: Date.now() - startMs });
 

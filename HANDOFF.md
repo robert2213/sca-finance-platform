@@ -1,8 +1,31 @@
 # Nexora AI Finance — Project Handoff Document
 
 **Last updated:** June 9, 2026 (Session E)  
-**Repository:** `nexora-ai-finance`  
+**Repository:** `nexora-ai-finance` (local) · `robert2213/sca-finance-platform` (GitHub)  
 **Author note:** This document is written for a developer taking over the project cold. Every section reflects the actual codebase as of the most recent session.
+
+---
+
+## Starting a New Session
+
+**Local project path:** `C:\Users\rober\OneDrive\Desktop\nexora-ai-finance`  
+**GitHub remote:** `https://github.com/robert2213/sca-finance-platform.git`
+
+Open Claude Code with the local project as the working directory. The memory system and HANDOFF.md load automatically. To orient the new session:
+
+```
+Read HANDOFF.md — pick up from Next Session Priorities.
+```
+
+**Verify GitHub connection at session start:**
+```
+git remote -v           # should show robert2213/sca-finance-platform
+git status              # confirm branch and working tree state
+git log --oneline -3    # confirm you're at the right commit
+gh auth status          # confirm gh CLI is authenticated (for PR/issue commands)
+```
+
+If `git push` fails, re-authenticate via `gh auth login` or let Windows Credential Manager prompt on the next push.
 
 ---
 

@@ -7,6 +7,7 @@ import StatsBanner from "@/components/dashboard/StatsBanner";
 import {
   getHeadcount, getHCSummary, getOpenReqs, getHCByBusinessUnit,
 } from "@/lib/queries";
+import { resolveClientId } from "@/config/client.resolver";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -24,11 +25,12 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function HeadcountPage() {
+  const clientId = resolveClientId();
   const [headcount, summary, openReqs, byBU] = await Promise.all([
-    getHeadcount(),
-    getHCSummary(),
-    getOpenReqs(),
-    getHCByBusinessUnit(),
+    getHeadcount(clientId),
+    getHCSummary(clientId),
+    getOpenReqs(clientId),
+    getHCByBusinessUnit(clientId),
   ]);
   const salaryBudget = summary.totalAnnualSalaryBudget;
   const fillRate     = summary.fillRate;
@@ -58,7 +60,7 @@ export default async function HeadcountPage() {
       subtitle="Workforce planning · Open reqs · Salary budget · Fill rate"
       badge="Headcount Agent"
     >
-      <StatsBanner />
+      <StatsBanner clientId={clientId} />
 
       <section className="mb-8">
         <SectionHeader label="Key Performance Indicators" sub="Workforce metrics · YTD May 2026" />

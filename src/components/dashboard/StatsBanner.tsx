@@ -9,8 +9,8 @@ interface StatItem {
   status: "good" | "warn" | "bad" | "neutral";
 }
 
-export default async function StatsBanner() {
-  const bundle = await getKPIBundle();
+export default async function StatsBanner({ clientId }: { clientId?: string }) {
+  const bundle = await getKPIBundle(clientId);
 
   const stats: StatItem[] = [
     {
