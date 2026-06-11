@@ -11,14 +11,15 @@ import { classifyFileType } from "@/lib/validation/file-validators/unsupported-f
 import type { FileValidationIssue } from "@/lib/validation/file-validation.types";
 import { uploadHistory } from "@/lib/ingestion/upload-history.resolver";
 import type { UploadStatus } from "@/lib/ingestion/staging.types";
+import { detectDataType, type DetectionConfidence } from "@/lib/ingestion/data-type-detector";
 import defaultConfig from "@/config/client.config";
 
 /**
  * POST /api/ingest/upload  — Sprint 11A.1 thin slice + 11A.2 history persistence
  *
  * Additive endpoint that runs an uploaded file through:
- *   file-structure validation (11A.3) → parse → map → semantic validation →
- *   stage → history.
+ *   data-type detection (11A.5) → file-structure validation (11A.3) → parse →
+ *   map → semantic validation → stage → history.
  * Records the result in the in-memory upload history service and returns a
  * structured summary (uploadId, lifecycle status, and split file/semantic
  * validation reporting). If file-structure validation fails, the pipeline stops
@@ -28,11 +29,12 @@ import defaultConfig from "@/config/client.config";
  * Body: multipart/form-data
  *   file      — required — a .csv or .xlsx file
  *   dataType  — optional — one of: gl-actuals | budget | forecast | headcount |
- *               vendors | external-labor        (default: gl-actuals)
+ *               vendors | external-labor. If omitted, it is AUTO-DETECTED from the
+ *               header row (Sprint 11A.5); if provided, it overrides detection.
  *   period    — optional — ISO month "YYYY-MM"  (default: first configured period)
  *
- * Returns: UploadSummary JSON (with uploadId + status). The record is retrievable
- * via GET /api/ingest/uploads and GET /api/ingest/uploads/[uploadId].
+ * Returns: UploadSummary JSON (uploadId, status, and detection fields). The record
+ * is retrievable via GET /api/ingest/uploads and GET /api/ingest/uploads/[uploadId].
  */
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — mirrors POST /api/ingest
@@ -65,6 +67,12 @@ interface UploadSummary {
   semanticValidationStatus: ValidationStatus | null;  // null when file validation blocked the run
   semanticErrors: ValidationError[];                  // blocking semantic issues (mapped records)
   semanticWarnings: ValidationWarning[];              // advisory semantic issues (mapped records)
+  // ── Sprint 11A.5: automatic data-type detection (all fields above unchanged) ──
+  detectedDataType: string | null;        // detector's best match (independent of any override)
+  confidence: DetectionConfidence;        // high | medium | low
+  detectionScore: number;                 // winner match ratio, 0..1
+  matchedColumns: string[];               // detector signals matched (winning type)
+  missingColumns: string[];               // detector signals not matched (winning type)
 }
 
 export async function POST(request: NextRequest) {
@@ -95,15 +103,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // dataType — optional; defaults to gl-actuals. Auto-detection is future work.
-  const dataTypeInput = ((formData.get("dataType") as string | null) ?? "").trim() || "gl-actuals";
-  if (!VALID_DATA_TYPES.includes(dataTypeInput as DataType)) {
+  // dataType — OPTIONAL (Sprint 11A.5). If provided it overrides auto-detection
+  // (back-compat); if omitted, the type is detected from the header row below.
+  const dataTypeParam = ((formData.get("dataType") as string | null) ?? "").trim();
+  if (dataTypeParam && !VALID_DATA_TYPES.includes(dataTypeParam as DataType)) {
     return NextResponse.json(
-      { error: `Invalid dataType "${dataTypeInput}". Must be one of: ${VALID_DATA_TYPES.join(", ")}` },
+      { error: `Invalid dataType "${dataTypeParam}". Must be one of: ${VALID_DATA_TYPES.join(", ")}` },
       { status: 400 }
     );
   }
-  const dataType = dataTypeInput as DataType;
 
   // period — optional; defaults to the first configured reporting period.
   const periodInput = ((formData.get("period") as string | null) ?? "").trim();
@@ -141,7 +149,26 @@ export async function POST(request: NextRequest) {
     const columnCount = headers.length;
     const sampleRows = rawRows.slice(0, SAMPLE_ROW_LIMIT);
 
-    // ── 1. FILE-STRUCTURE VALIDATION (Sprint 11A.3) — runs BEFORE parse/map ──
+    // ── 1. AUTOMATIC DATA TYPE DETECTION (Sprint 11A.5) ──
+    // Runs before file validation so the required-columns check validates against
+    // the resolved type. An explicit dataType form field overrides detection.
+    const detection = detectDataType(headers);
+    const usedDetection = !dataTypeParam;
+    // Effective type for mapping/validation. "gl-actuals" is only a neutral
+    // placeholder for the machinery when detection found nothing (null) and no
+    // param was given — such uploads are caught by the low-confidence gate below.
+    const dataType: DataType =
+      (dataTypeParam || detection.dataType || "gl-actuals") as DataType;
+
+    const detectionFields = {
+      detectedDataType: detection.dataType,
+      confidence: detection.confidence,
+      detectionScore: detection.score,
+      matchedColumns: detection.matchedColumns,
+      missingColumns: detection.missingColumns,
+    };
+
+    // ── 2. FILE-STRUCTURE VALIDATION (Sprint 11A.3) — runs BEFORE parse/map ──
     const fileValidation = validateFileStructure({
       fileName: file.name,
       dataType,
@@ -152,9 +179,9 @@ export async function POST(request: NextRequest) {
     const fileErrors = fileValidation.issues.filter((i) => i.severity === "error");
     const fileWarnings = fileValidation.issues.filter((i) => i.severity === "warning");
 
-    // If file structure is invalid, record the failure and STOP — do not parse,
-    // map, semantically validate, or stage. Return a structured 422.
-    if (fileValidation.status === "error") {
+    // Record a file-structure failure and return a structured 422 (shared by the
+    // structural and required-columns rejection branches below).
+    const fileFailureResponse = async (): Promise<NextResponse> => {
       const failed = await uploadHistory.addUpload({
         fileName: file.name,
         fileType,
@@ -168,7 +195,6 @@ export async function POST(request: NextRequest) {
         readyForStaging: false,
       });
       await uploadHistory.updateStatus(failed.uploadId, "failed");
-
       const errorSummary: UploadSummary = {
         uploadId: failed.uploadId,
         fileName: file.name,
@@ -188,8 +214,36 @@ export async function POST(request: NextRequest) {
         semanticValidationStatus: null, // semantic layer never ran
         semanticErrors: [],
         semanticWarnings: [],
+        ...detectionFields,
       };
       return NextResponse.json(errorSummary, { status: 422 });
+    };
+
+    // Rejection precedence (do NOT continue to parse/map/stage):
+    //   (a) STRUCTURAL file errors (empty/unsupported/duplicate-header) — type-
+    //       independent, clearest message — always win.
+    const structuralFileError = fileErrors.some((e) => e.validator !== "required-columns");
+    if (structuralFileError) {
+      return fileFailureResponse();
+    }
+    //   (b) else low-confidence auto-detection → structured rejection. Not recorded
+    //       in history: there is no trustworthy type to stage.
+    if (usedDetection && detection.confidence === "low") {
+      return NextResponse.json(
+        {
+          error:
+            "Could not confidently determine the data type from the file headers. " +
+            "Pass an explicit dataType form field to override automatic detection.",
+          ...detectionFields,
+          supportedDataTypes: VALID_DATA_TYPES,
+          scores: detection.scores,
+        },
+        { status: 422 }
+      );
+    }
+    //   (c) else remaining file errors (missing required columns for the resolved type).
+    if (fileValidation.status === "error") {
+      return fileFailureResponse();
     }
 
     // ── 2. PARSE → MAP (V2 orchestrator) ──
@@ -246,6 +300,7 @@ export async function POST(request: NextRequest) {
       semanticValidationStatus,
       semanticErrors,
       semanticWarnings,
+      ...detectionFields,
     };
 
     return NextResponse.json(summary);
@@ -261,14 +316,14 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     endpoint: "POST /api/ingest/upload",
-    description: "Validate file structure (11A.3), then parse + map + semantically validate an upload, then record it in the in-memory upload history (11A.2).",
-    pipeline: ["file-structure-validation", "parse", "map", "semantic-validation", "stage", "history"],
+    description: "Auto-detect the data type (11A.5), validate file structure (11A.3), parse + map + semantically validate, then record in the upload history (11A.2/11A.4).",
+    pipeline: ["data-type-detection", "file-structure-validation", "parse", "map", "semantic-validation", "stage", "history"],
     acceptedFileTypes: ["csv", "xlsx"],
     dataTypes: VALID_DATA_TYPES,
     maxFileSizeMB: 50,
     fields: {
       file: "required — a .csv or .xlsx file",
-      dataType: "optional — defaults to gl-actuals",
+      dataType: "optional — auto-detected from headers when omitted; overrides detection when provided",
       period: "optional — ISO month YYYY-MM; defaults to first configured period",
     },
     history: {
