@@ -11,6 +11,7 @@ import {
   getOpenReqs as getOpenReqsDB,
   getByBusinessUnit,
   getActualsByPeriod,
+  YTD_CUTOFF,
 } from "@/lib/queries";
 import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
@@ -151,7 +152,9 @@ export async function generateRiskFlagsAsync(clientId: string = DEFAULT_CLIENT_I
     getOverBudgetContractorsDB(clientId),
     getEndingSoonContractorsDB(90, clientId),
     getOpenReqsDB(clientId),
-    getByBusinessUnit(undefined, clientId),
+    // YTD-scoped (matches buildDashboardKPIsFromDB) — passing undefined here
+    // would aggregate all fiscal years on a multi-year Databricks dataset.
+    getByBusinessUnit(YTD_CUTOFF, clientId),
     getActualsByPeriod("2026-05", clientId),
   ]);
 
