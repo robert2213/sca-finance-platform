@@ -1,4 +1,5 @@
 import { dbQuery } from "@/lib/databricks";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 import type { BusinessUnit } from "@/types/finance";
 
 export interface ContractorRow {
@@ -18,7 +19,7 @@ export interface ContractorRow {
   variance: number;
 }
 
-export async function getContractors(clientId: string = "demo-client"): Promise<ContractorRow[]> {
+export async function getContractors(clientId: string = DEFAULT_CLIENT_ID): Promise<ContractorRow[]> {
   const sql = `
     SELECT
       contractor_id, contractor_name, role, vendor,
@@ -67,14 +68,14 @@ export async function getContractors(clientId: string = "demo-client"): Promise<
   });
 }
 
-export async function getOverBudgetContractors(clientId: string = "demo-client"): Promise<ContractorRow[]> {
+export async function getOverBudgetContractors(clientId: string = DEFAULT_CLIENT_ID): Promise<ContractorRow[]> {
   const all = await getContractors(clientId);
   return all.filter((c) => c.ytdSpend > c.budget);
 }
 
 export async function getEndingSoonContractors(
   withinDays = 60,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<ContractorRow[]> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + withinDays);
@@ -128,7 +129,7 @@ export async function getEndingSoonContractors(
   });
 }
 
-export async function getContractorsByBU(clientId: string = "demo-client"): Promise<{
+export async function getContractorsByBU(clientId: string = DEFAULT_CLIENT_ID): Promise<{
   bu: BusinessUnit;
   count: number;
   ytdSpend: number;

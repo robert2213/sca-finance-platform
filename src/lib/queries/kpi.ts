@@ -2,6 +2,7 @@ import { getYTDSummary, getByBusinessUnit, YTD_CUTOFF } from "./actuals";
 import { getHCSummary } from "./headcount";
 import { getContractors, getOverBudgetContractors } from "./contractors";
 import { getVendors } from "./vendors";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 import type { KPI } from "@/types/finance";
 
 export interface KPISummary {
@@ -20,7 +21,7 @@ export interface KPISummary {
 
 /** Aggregate KPI summary across all data domains. */
 export async function getKPISummary(
-  clientId: string = "demo-client",
+  clientId: string = DEFAULT_CLIENT_ID,
   period: string = YTD_CUTOFF
 ): Promise<KPISummary> {
   const [ytd, contractors, overBudget, hcSummary, vendors] = await Promise.all([
@@ -53,7 +54,7 @@ export async function getKPISummary(
 
 /** Build typed KPI cards for the main dashboard (mirrors buildDashboardKPIs shape). */
 export async function buildDashboardKPIsFromDB(
-  clientId: string = "demo-client",
+  clientId: string = DEFAULT_CLIENT_ID,
   period: string = YTD_CUTOFF
 ): Promise<KPI[]> {
   const [summary, buTotals] = await Promise.all([

@@ -1,4 +1,5 @@
 import { dbQuery } from "@/lib/databricks";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 import type { BusinessUnit, HCStatus } from "@/types/finance";
 
 export interface HeadcountRow {
@@ -33,7 +34,7 @@ export interface HCByBU {
   salaryBudget: number;
 }
 
-export async function getHeadcount(clientId: string = "demo-client"): Promise<HeadcountRow[]> {
+export async function getHeadcount(clientId: string = DEFAULT_CLIENT_ID): Promise<HeadcountRow[]> {
   const sql = `
     SELECT
       position_id, title, business_unit, level, status,
@@ -69,7 +70,7 @@ export async function getHeadcount(clientId: string = "demo-client"): Promise<He
   }));
 }
 
-export async function getHCSummary(clientId: string = "demo-client"): Promise<HCSummary> {
+export async function getHCSummary(clientId: string = DEFAULT_CLIENT_ID): Promise<HCSummary> {
   const sql = `
     SELECT
       COUNT(*) AS total,
@@ -104,7 +105,7 @@ export async function getHCSummary(clientId: string = "demo-client"): Promise<HC
   };
 }
 
-export async function getOpenReqs(clientId: string = "demo-client"): Promise<HeadcountRow[]> {
+export async function getOpenReqs(clientId: string = DEFAULT_CLIENT_ID): Promise<HeadcountRow[]> {
   const sql = `
     SELECT
       position_id, title, business_unit, level, status,
@@ -140,7 +141,7 @@ export async function getOpenReqs(clientId: string = "demo-client"): Promise<Hea
   }));
 }
 
-export async function getHCByBusinessUnit(clientId: string = "demo-client"): Promise<HCByBU[]> {
+export async function getHCByBusinessUnit(clientId: string = DEFAULT_CLIENT_ID): Promise<HCByBU[]> {
   const sql = `
     SELECT
       business_unit,
@@ -175,7 +176,7 @@ export async function getHCByBusinessUnit(clientId: string = "demo-client"): Pro
   });
 }
 
-export async function getHeadcountCosts(period: string, clientId: string = "demo-client") {
+export async function getHeadcountCosts(period: string, clientId: string = DEFAULT_CLIENT_ID) {
   const sql = `
     SELECT
       business_unit,

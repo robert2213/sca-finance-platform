@@ -18,6 +18,7 @@ import { getYTDSummary, getByCategory, YTD_CUTOFF } from "@/lib/queries/actuals"
 import { getHCSummary } from "@/lib/queries/headcount";
 import { getContractors } from "@/lib/queries/contractors";
 import { generateRiskFlagsAsync } from "@/lib/riskEngine";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ export interface KPIBundle {
  * treat 0/0 as "data not available" and render accordingly.
  */
 export async function getKPIBundle(
-  clientId: string = "demo-client",
+  clientId: string = DEFAULT_CLIENT_ID,
   period: string = YTD_CUTOFF
 ): Promise<KPIBundle> {
   const [ytd, hc, contractors, categories, risks] = await Promise.all([

@@ -5,6 +5,8 @@ export type Month =
   | "January" | "February" | "March" | "April" | "May" | "June"
   | "July" | "August" | "September" | "October" | "November" | "December";
 
+export type ClientEnvironment = "demo" | "staging" | "production";
+
 export type ModuleKey =
   | "actuals"
   | "budget"
@@ -53,6 +55,7 @@ export interface AgentConfig {
 export interface ClientConfig {
   clientId: string;
   clientName: string;
+  environment: ClientEnvironment;
   logoPath: string;
   primaryColor: string;
   fiscalYearStart: Month;
@@ -70,6 +73,7 @@ export interface ClientConfig {
 const defaultConfig: ClientConfig = {
   clientId: "demo-client",
   clientName: "Demo Client",
+  environment: "demo",
   logoPath: "/logo.svg",
   primaryColor: "#6366f1",
   fiscalYearStart: "January",

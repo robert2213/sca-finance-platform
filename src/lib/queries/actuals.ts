@@ -7,6 +7,7 @@
  */
 
 import { dbQuery } from "@/lib/databricks";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 import type { Month, BusinessUnit, CostCategory } from "@/types/finance";
 
 // ─── Types (mirror static-data helper return shapes) ──────────────────────────
@@ -78,7 +79,7 @@ export const YTD_CUTOFF = "2026-05";
  */
 export async function getMonthlyTotals(
   year?: number,
-  clientId: string = "demo-client",
+  clientId: string = DEFAULT_CLIENT_ID,
   endPeriod: string = YTD_CUTOFF
 ): Promise<MonthlyTotal[]> {
   const yearClause = year ? "AND CAST(substr(period, 1, 4) AS INTEGER) = ?" : "";
@@ -116,7 +117,7 @@ export async function getMonthlyTotals(
 /** YTD actuals by business unit with variance. */
 export async function getByBusinessUnit(
   period?: string,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<BUTotal[]> {
   // When a period is supplied, scope to that fiscal year (derived start bound)
   // so multi-year databases don't bleed prior-year data into the totals.
@@ -162,7 +163,7 @@ export async function getByBusinessUnit(
 /** YTD actuals by cost category. */
 export async function getByCategory(
   period?: string,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<CategoryTotal[]> {
   const yearStart    = period ? `${period.slice(0, 4)}-01` : null;
   const periodClause = period ? "AND period >= ? AND period <= ?" : "";
@@ -201,7 +202,7 @@ export async function getByCategory(
 /** Cost center detail for a specific period (for the FP&A variance table). */
 export async function getActualsByPeriod(
   period: string,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<CostCenterDetail[]> {
   const sql = `
     SELECT
@@ -251,7 +252,7 @@ export async function getActualsByPeriod(
 
 /** YTD totals — single aggregates, scoped to [startPeriod, endPeriod]. */
 export async function getYTDSummary(
-  clientId: string = "demo-client",
+  clientId: string = DEFAULT_CLIENT_ID,
   endPeriod: string = YTD_CUTOFF,
   startPeriod: string = YTD_START
 ): Promise<{
@@ -277,14 +278,14 @@ export async function getYTDSummary(
 }
 
 /** Budget for a specific period. */
-export async function getBudgetByPeriod(period: string, clientId: string = "demo-client") {
+export async function getBudgetByPeriod(period: string, clientId: string = DEFAULT_CLIENT_ID) {
   return getActualsByPeriod(period, clientId);
 }
 
 /** Variance by category for a period. */
 export async function getVarianceByCategory(
   period: string,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<CategoryTotal[]> {
   return getByCategory(period, clientId);
 }

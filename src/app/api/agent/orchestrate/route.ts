@@ -23,7 +23,7 @@ import {
   orchestrate, ORCHESTRATION_SETS, AGENT_NAMES,
 } from "@/agents/orchestrator";
 import { getFinanceSnapshot, resolveSnapshot } from "@/agents/dataContext";
-import defaultConfig from "@/config/client.config";
+import { resolveClientId } from "@/config/client.resolver";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       // ── Live Claude path: run all agents in parallel ──────────────────────
       const client   = new Anthropic({ apiKey });
       // Databricks-backed snapshot (falls back to static getFinanceSnapshot() on error/missing env)
-      const snapshot = await resolveSnapshot(defaultConfig.clientId);
+      const snapshot = await resolveSnapshot(resolveClientId());
 
       const agentIds: AgentId[] =
         orchestrationType === "custom" && customAgents?.length

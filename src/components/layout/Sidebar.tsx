@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import clsx from "clsx";
+import { useClientConfig } from "@/lib/hooks/useClientConfig";
 import {
   LayoutDashboard,
   Bot,
@@ -54,6 +55,7 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { clientName } = useClientConfig();
 
   useEffect(() => {
     onClose?.();
@@ -86,7 +88,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               <span className="text-white font-black text-sm tracking-tight">N</span>
             </div>
             <div>
-              <p className="font-black text-slate-900 text-sm leading-tight tracking-tight">Nexora</p>
+              <p className="font-black text-slate-900 text-sm leading-tight tracking-tight">{clientName}</p>
               <p className="text-[10px] text-slate-400 leading-tight font-medium">AI Finance Dept.</p>
             </div>
           </div>

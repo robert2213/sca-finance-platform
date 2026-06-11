@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
 import { buildSnapshotFromDB, getFinanceSnapshot } from "@/agents/dataContext";
 import type { FinanceSnapshot } from "@/agents/dataContext";
-import defaultConfig from "@/config/client.config";
+import { resolveClientId } from "@/config/client.resolver";
 import { buildSystemPrompt, classifyIntent, extractTemporalIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 import {
@@ -295,13 +295,14 @@ export async function POST(request: NextRequest) {
     // ── Build DB snapshot once — shared by guard, Claude, and mock fallback ──
     // Falls back to static getFinanceSnapshot() if Databricks env is absent or throws.
     let snapshot: FinanceSnapshot;
+    const clientId = resolveClientId();
     const hasDb = Boolean(process.env.DATABRICKS_HOST);
     if (hasDb) {
       try {
-        snapshot = await buildSnapshotFromDB(defaultConfig.clientId);
+        snapshot = await buildSnapshotFromDB(clientId);
         pipelineLog("DB_SNAPSHOT_BUILT", {
           agentId,
-          clientId:  defaultConfig.clientId,
+          clientId,
           ytdActual: snapshot.ytdActual,
         });
       } catch (dbErr: unknown) {

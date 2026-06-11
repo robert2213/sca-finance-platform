@@ -3596,6 +3596,118 @@ Mock path (`dispatchAgent`) remains completely unaffected — it still uses `get
 
 ---
 
+## Session Update — June 10, 2026 (Sprint 10 Phase A — Client Configuration)
+
+### Sprint: Centralize client ID resolution
+
+**Objective:** Remove scattered `"demo-client"` literals and `defaultConfig.clientId` references from non-ingestion code. Create a single, central client resolution layer so that once auth lands, only one file needs to learn about real tenant IDs.
+
+---
+
+### What Was Built
+
+#### New file: `src/config/client.resolver.ts`
+
+Central client resolution layer. Exports:
+- `DEFAULT_CLIENT_ID` — sourced from `defaultConfig.clientId`, never hardcoded
+- `resolveClientId(explicitClientId?)` — returns explicit ID if supplied, otherwise `DEFAULT_CLIENT_ID`
+- `resolveClient(explicitClientId?)` — returns `ResolvedClient` (`{ id, name, environment }`)
+- `ResolvedClient` interface
+
+Until Clerk/auth lands (Sprint 3), `resolveClientId()` always returns `defaultConfig.clientId`. When sessions carry a real tenant ID, this function is the only place that needs to change.
+
+#### Modified: `src/config/client.config.ts`
+
+- Added `ClientEnvironment = "demo" | "staging" | "production"` type
+- Added `environment: ClientEnvironment` field to `ClientConfig` interface
+- Added `environment: "demo"` to default config object
+
+Default client is now formally defined with all three required fields: `id: "demo-client"`, `name: "Demo Client"`, `environment: "demo"`.
+
+---
+
+### `"demo-client"` Reference Audit
+
+| File | Remaining Reference | Classification |
+|---|---|---|
+| `src/config/client.config.ts:74` | `clientId: "demo-client"` | **SOURCE OF TRUTH — must remain literal** — this is the one canonical definition |
+| `src/lib/ingestion/field-mapper.ts:140,201,257,308,354` | `clientId = "demo-client"` | **KEEP AS FALLBACK — ingestion out of scope** (Phase A rule #8) |
+| `migrations/002-backfill-client-id.sql` | `SET client_id = 'demo-client'` | **MIGRATION SEED ONLY** — SQL migration, not application code |
+| `docs/INGESTION.md` | `"demo-client"` | **DOCUMENTATION ONLY** |
+
+All other `"demo-client"` literal uses in application code replaced with `DEFAULT_CLIENT_ID` or `resolveClientId()`.
+
+---
+
+### Files Changed (15 total)
+
+| File | Change |
+|---|---|
+| `src/config/client.resolver.ts` | **NEW** — central resolver |
+| `src/config/client.config.ts` | Added `ClientEnvironment` type + `environment` field |
+| `src/lib/queries/actuals.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (all 7 functions) |
+| `src/lib/queries/vendors.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (2 functions) |
+| `src/lib/queries/headcount.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (5 functions) |
+| `src/lib/queries/contractors.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (4 functions) |
+| `src/lib/queries/kpi.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (2 functions) |
+| `src/agents/dataContext.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` (`buildSnapshotFromDB`, `resolveSnapshot`) |
+| `src/app/api/agent/route.ts` | `defaultConfig.clientId` → `resolveClientId()` |
+| `src/app/api/agent/executive/route.ts` | `defaultConfig.clientId` → `resolveClientId()` |
+| `src/app/api/agent/orchestrate/route.ts` | `defaultConfig.clientId` → `resolveClientId()` |
+| `src/lib/riskEngine.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` |
+| `src/lib/services/kpi.service.ts` | `"demo-client"` → `DEFAULT_CLIENT_ID` |
+| `src/app/layout.tsx` | Removed hardcoded `"Nexora AI Finance"` title — uses `defaultConfig.clientName` |
+| `src/components/layout/Sidebar.tsx` | Removed hardcoded `"Nexora"` sidebar label — uses `useClientConfig().clientName` |
+
+---
+
+### Validation Results
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 errors |
+| `npm run build` | ✅ Compiled successfully |
+| Static pages | ✅ 29/29 generated |
+| Behavior change | ✅ None — `resolveClientId()` returns `"demo-client"` until auth lands |
+
+---
+
+### Remaining `defaultConfig` Direct Imports (intentional)
+
+| File | Why `defaultConfig` remains |
+|---|---|
+| `src/app/api/ingest/route.ts` | Ingestion out of scope (Phase A rule #8); uses `defaultConfig.clientId` — functionally equivalent to `DEFAULT_CLIENT_ID` |
+| `src/app/layout.tsx` | Uses `defaultConfig.clientName` for metadata title — not `clientId`; UI branding, no auth needed |
+| `src/components/layout/ClientConfigProvider.tsx` | Context provider passing full config — not just `clientId` |
+| `src/lib/hooks/useClientConfig.ts` | Context hook for full config — not just `clientId` |
+| `src/lib/ai/system-prompt.builder.ts` | Uses `defaultConfig.clientName` in prompts — not `clientId` |
+| `src/config/client.resolver.ts` | This IS the resolver — imports `defaultConfig` to build from it |
+
+---
+
+### Commit
+
+`[pending — see below]`
+
+---
+
+### Regression Risk
+
+**None.** `resolveClientId()` always returns `defaultConfig.clientId` = `"demo-client"` until an auth layer passes an explicit ID. Every call site passes no argument, so the result is identical to the old hardcoded string. The only observable change is that the sidebar and page title now read "Demo Client" from config instead of the hardcoded "Nexora" string.
+
+---
+
+### Next Session Priorities
+
+1. **Add `ANTHROPIC_API_KEY`** to `.env.local` AND Vercel env vars — agents go live
+2. **Wire `AgentChatPanel.tsx` to `/api/agent`** — open since Session G
+3. **`git push origin main`** — deploy all commits to Vercel
+4. **Sprint 3 auth** — Clerk re-integration; `resolveClientId()` reads from session
+5. **Sprint 2 Phase 2** — connect remaining dashboard KPIs to `buildDashboardKPIsFromDB()`
+6. **Fix `/api/db/query`** — currently unprotected raw SQL endpoint (critical security gap)
+
+---
+
 ## Session Update — June 10, 2026 (Vercel Build Fix)
 
 ### Sprint: Fix `@databricks/sql` client bundle error caused by Sprint 2 Phase 1
@@ -5884,3 +5996,72 @@ AgentWorkspace.tsx:351  fetch("/api/agent", POST)
 | Add `client_id` to SQLite CREATE TABLE | `AND client_id = ?` queries fail on local SQLite — deferred |
 | Clerk auth | Sprint 3 — needed for multi-tenant `clientId` from session |
 | Executive deck UI | JSON endpoint ready at `/api/agent/executive`; no UI component yet |
+
+---
+
+## Session 9 — Remove remaining static snapshot paths (executive + orchestrate)
+
+**Date:** 2026-06-10
+**Status:** Complete. Committed `98cfcdf` on `main`.
+**Trigger:** Session 8 aligned `/api/agent`. This session closes the two remaining
+agent endpoints that still resolved their snapshot from static `getFinanceSnapshot()`:
+`/api/agent/executive` and `/api/agent/orchestrate`.
+
+### What was done
+
+Introduced a single shared resolver, `resolveSnapshot(clientId)`, in `dataContext.ts`.
+It returns `buildSnapshotFromDB(clientId)` when `DATABRICKS_HOST` is set and falls back
+to static `getFinanceSnapshot()` on missing env or any DB error. Both remaining routes
+(and the orchestrator's mock path) now go through it, so every agent surface shares the
+same Databricks-backed snapshot as `/api/agent`.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/agents/dataContext.ts` | Added `export async function resolveSnapshot(clientId = "demo-client")` — DB-first with static fallback. Single decision point for live-vs-static. |
+| `src/app/api/agent/executive/route.ts` | Added imports `resolveSnapshot`, `defaultConfig`. POST now `await resolveSnapshot(defaultConfig.clientId)` instead of `getFinanceSnapshot()`. (`getFinanceSnapshot` import kept — used only in `ReturnType<typeof …>` type refs.) |
+| `src/app/api/agent/orchestrate/route.ts` | Added imports `resolveSnapshot`, `defaultConfig`. Live path now `await resolveSnapshot(defaultConfig.clientId)`; the resolved snapshot is passed into `orchestrate(…, snapshot)` so live synthesis matches. |
+| `src/agents/orchestrator.ts` | `orchestrate()` gained optional 4th param `snapshotOverride`; resolves `snapshotOverride ?? await resolveSnapshot()` once and threads it into every `dispatchAgent(agentId, question, [], snapshot)` and into `synthesizeFindings(…, snapshot)`. Swapped `getFinanceSnapshot` import for `resolveSnapshot`. |
+
+### getFinanceSnapshot() usage audit (post-change)
+
+| Location | Classification |
+|---|---|
+| `dataContext.ts:107` (definition) | Keep — the static builder itself |
+| `dataContext.ts:402` (inside `resolveSnapshot`) | **Intended fallback** when no DB / DB error |
+| `agentEngine.ts:412` `snapshotOverride ?? getFinanceSnapshot()` | **Intended fallback** when caller passes no override |
+| `route.ts:313,316` (agent chat route) | **Intended fallback** (Session 8) — untouched |
+| `agentEngine.ts:50`, `executive/route.ts:56,135,288`, `orchestrate/route.ts:39` | Compile-time `ReturnType<typeof getFinanceSnapshot>` type refs only — no runtime data path |
+
+No remaining static-only runtime data paths in any agent endpoint.
+
+### Validation results
+
+```
+TypeScript: 0 errors (npx tsc --noEmit)
+Build:      ✓ 29/29 pages (npx next build)
+Runtime smoke test (next dev, .env.local has DATABRICKS_HOST + ANTHROPIC_API_KEY):
+  POST /api/agent            → 200, contains $21,389,305, no $14,598,000
+  POST /api/agent/executive  → 200, period "YTD May 2026", contains $21,389,305, no $14,598,000
+  POST /api/agent/orchestrate → 200, contains $21,389,305, no $14,598,000
+```
+
+Note: all three returned `mode: "mock"` during the smoke test because the Anthropic
+account is **out of API credits** (`invalid_request_error: credit balance is too low`),
+so the live Claude path fails and falls back to mock. This is unrelated to this change —
+and confirms the fix, since even the mock fallback now carries Databricks values. Once
+credits are restored the live path uses the same `resolveSnapshot()` result.
+
+### Risk assessment
+
+- **Low.** Additive resolver with a guaranteed static fallback — no path can throw where
+  it previously returned data. If Databricks is unreachable, behavior degrades to the
+  prior static snapshot, same as `/api/agent`.
+- **Scope-safe.** Dashboard code, `role-analysis-engine`, KPI service, and the agent chat
+  route (`/api/agent`) were not modified. Only the 4 files above changed.
+- **Perf.** Orchestrate now resolves the DB snapshot once per request (was static/instant);
+  one extra `buildSnapshotFromDB` round-trip on the orchestrate path, shared across all
+  fanned-out agents. Acceptable and consistent with `/api/agent`.
+- **Watch item:** restore Anthropic API credits to re-enable the live Claude path and
+  validate live-mode responses end-to-end.

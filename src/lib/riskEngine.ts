@@ -12,6 +12,7 @@ import {
   getByBusinessUnit,
   getActualsByPeriod,
 } from "@/lib/queries";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
 let riskIdCounter = 1;
 function mkId() { return `RISK-${String(riskIdCounter++).padStart(3, "0")}`; }
@@ -140,7 +141,7 @@ export function generateRiskFlags(): RiskFlag[] {
   });
 }
 
-export async function generateRiskFlagsAsync(clientId: string = "demo-client"): Promise<RiskFlag[]> {
+export async function generateRiskFlagsAsync(clientId: string = DEFAULT_CLIENT_ID): Promise<RiskFlag[]> {
   let counter = 1;
   const mkId = () => `RISK-${String(counter++).padStart(3, "0")}`;
   const flags: RiskFlag[] = [];

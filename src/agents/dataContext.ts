@@ -28,6 +28,7 @@ import {
 } from "@/data/cloudSpend";
 import { formatCurrency, formatPercent, formatDate, daysUntil } from "@/lib/formatters";
 import { generateRiskFlags, generateRecommendedActions } from "@/lib/riskEngine";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -226,11 +227,11 @@ import { dbQuery } from "@/lib/databricks";
  * Cloud spend is a proxy from fact_transactions WHERE category = 'Cloud'
  * (provider-level breakdown is deferred until dim_cloud_provider is built).
  *
- * clientId defaults to "demo-client" until Sprint 3 Clerk auth lands and
- * the session provides the real tenant ID.
+ * clientId defaults to the central DEFAULT_CLIENT_ID (client.resolver.ts)
+ * until Sprint 3 Clerk auth lands and the session provides the real tenant ID.
  */
 export async function buildSnapshotFromDB(
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<FinanceSnapshot> {
   const [
     ytdSummary,
@@ -387,7 +388,7 @@ export async function buildSnapshotFromDB(
  * /api/agent, /api/agent/executive, and /api/agent/orchestrate stay aligned.
  */
 export async function resolveSnapshot(
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<FinanceSnapshot> {
   if (process.env.DATABRICKS_HOST) {
     try {

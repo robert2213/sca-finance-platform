@@ -1,4 +1,5 @@
 import { dbQuery } from "@/lib/databricks";
+import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 import type { BusinessUnit } from "@/types/finance";
 
 export interface VendorRow {
@@ -15,7 +16,7 @@ export interface VendorRow {
   riskLevel: "Low" | "Medium" | "High";
 }
 
-export async function getVendors(clientId: string = "demo-client"): Promise<VendorRow[]> {
+export async function getVendors(clientId: string = DEFAULT_CLIENT_ID): Promise<VendorRow[]> {
   const sql = `
     SELECT
       vendor_id, vendor_name, vendor_category,
@@ -58,7 +59,7 @@ export async function getVendors(clientId: string = "demo-client"): Promise<Vend
 export async function getVendorSpend(
   period: string,
   topN: number = 10,
-  clientId: string = "demo-client"
+  clientId: string = DEFAULT_CLIENT_ID
 ): Promise<{ vendorId: string | null; vendorName: string; totalSpend: number }[]> {
   const sql = `
     SELECT
