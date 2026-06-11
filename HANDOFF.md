@@ -6290,3 +6290,25 @@ Runtime (curl against dev server, no DB I/O involved):
 ### Regression Risk
 
 **None.** One new, self-contained route file. No existing file modified; `POST /api/ingest`, dashboards, agents, KPI logic, risk engine, and client config are all untouched. `git status` shows zero tracked-file changes beyond the added route.
+
+### Deployment fix — Vercel "Module not found" (commit `5a891e0`)
+
+**Symptom:** Vercel build failed after `96f6045` with `Module not found: @/lib/ingestion/ingest.orchestrator`, `@/lib/ingestion/parsers/csv.parser`, `@/lib/ingestion/parsers/xlsx.parser`, `@/lib/validation/validation.runner`.
+
+**Root cause:** `96f6045` committed `src/app/api/ingest/upload/route.ts` but **not** the V2 modules it imports. Those modules were untracked — they existed on the local disk (so `tsc`/`next build` passed locally) but were never in git, so the Vercel checkout (committed files only) couldn't resolve them. Local builds mask this class of bug; only a clean checkout (or Vercel) exposes it.
+
+**Fix:** Committed the exact transitive import closure of the upload route — **18 files**:
+
+| Group | Files |
+|---|---|
+| Orchestrator | `ingestion/ingest.orchestrator.ts` |
+| Parsers | `parsers/csv.parser.ts`, `parsers/xlsx.parser.ts` |
+| Mappers (all 6 dispatched by the orchestrator) | `mappers/{gl,budget,forecast,headcount,vendor,external-labor}.mapper.ts` |
+| Validation | `validation.runner.ts`, `validation.types.ts`, `validators/{required-fields,period,cost-center,account,duplicate,anomaly}.validator.ts` |
+| Model | `models/finance.types.ts` |
+
+**Deliberately excluded** (not imported by the route, verified by grep — zero references anywhere in `src/`): `validators/department.validator.ts`, `validators/alignment.validator.ts`, `ingestion/connectors/`. They remain untracked until a future sprint wires them in.
+
+**Validated:** `npx tsc --noEmit` clean; `npm run build` ✓ 30/30 routes. The committed set is now import-closed — every import resolves to a committed file, the already-tracked `config/client.config.ts`, or an npm package (`papaparse`, `xlsx`).
+
+**Lesson for future additive endpoints:** when a new route imports from untracked `src/lib/**`, stage the route **and** its dependency closure in the same commit. A passing local build is not sufficient proof — trace imports or test from a clean checkout.
