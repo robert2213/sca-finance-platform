@@ -6555,6 +6555,77 @@ Runtime — FALLBACK mode (bogus DATABRICKS_* env → Databricks selected, conne
 
 ---
 
+## Sprint 11A.5 — Automatic Data Type Detection
+
+**Date:** 2026-06-11
+**Commit:** `fa367c8` (feat) · this handoff entry in the follow-up `docs(handoff)` commit
+**Status:** Complete. (Pre-work: 11A.4 commits `de340fd`+`b2e1181` already on `origin/main`; Vercel native posted `success` for `b2e1181`.)
+
+### Objective
+
+Eliminate manual dataset classification: determine the uploaded finance dataset type **from the header row, before mapping**. New pipeline step:
+
+```
+upload → file validation → [automatic data-type detection] → parse → map → semantic validation → stage → history
+```
+
+### Audit (Task 1)
+
+`dataType` was a manual form field **defaulting to `gl-actuals`**, feeding both `validateFileStructure` (required-columns) and `ingestFile` (mapper dispatch). The 11A.3 `column-profiles.ts` already encodes per-type source-header aliases — the basis for detection. Real synthetic data revealed two wrinkles: **space-separated headers** ("cost center") and **denormalized fact files** (carrying `amount`+`budget`+`forecast` together) that are inherently ambiguous. Best detection point: right after header extraction, **before** file validation (so required-columns validates the resolved type).
+
+### Files
+
+| File | Change |
+|---|---|
+| `src/lib/ingestion/data-type-detector.ts` | **NEW.** `detectDataType(headers)` → `{ dataType, confidence, score, matchedColumns, missingColumns, scores }`. Self-contained — imports nothing from Databricks / upload history / validation engine / UI (Task 8). |
+| `src/app/api/ingest/upload/route.ts` | **MODIFIED.** `dataType` form field now OPTIONAL (no default); auto-detected when omitted, overrides detection when provided. Low-confidence auto-detection → structured 422. Response gains `detectedDataType`/`confidence`/`detectionScore`/`matchedColumns`/`missingColumns` (all existing fields preserved). |
+
+### Detection strategy (Tasks 3 & 4)
+
+- **Weighted signature scoring, deterministic, explainable, no AI/LLM, no I/O.** Each type has weighted column signals: **3** = distinguishing (the specific measure column — `amount_actual`/`amount_budget`/`amount_forecast` — or a unique key like `position_id`/`vendor_id`/`contractor_id`), **2** = strong signature (`transaction_id`, `forecast_cycle`, `monthly_rate`, `sow_number`…), **1** = supporting/shared (`period`, `cost_center`, `category`). Weighting the specific measure highest is what separates the otherwise-similar gl-actuals / budget / forecast.
+- **Normalization** handles the required variations: case, and space/underscore/hyphen (`"Cost Center"` → `cost_center`), plus per-signal alias lists.
+- **Winner**: highest raw weighted score (tie-break: higher match ratio, then fixed profile order — fully deterministic).
+- **Confidence** = blend of match ratio and margin over the runner-up: `high` (ratio ≥ 0.6, distinguishing column matched, raw margin ≥ 2), `medium` (ratio ≥ 0.35 with a distinguishing match or clear margin), else `low`. A numeric `score` (0–1) and the full per-type `scores` array are returned for transparency.
+- **Wiring (Task 5)**: explicit `dataType` param overrides (back-compat); when omitted, detection drives the type. Rejection precedence: **(a)** structural file errors (empty/unsupported/duplicate-header) — type-independent — win; **(b)** else **low-confidence auto-detection** → structured 422 (`error` + detection fields + per-type `scores` + `supportedDataTypes`), not recorded to history (no trustworthy type to stage); **(c)** else remaining file errors (missing required columns for the resolved type). An explicit param bypasses gate (b).
+
+> Note: the detector returns the canonical DataType value **`vendors`** (the task's "vendor" is shorthand).
+
+### Runtime test results
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ next build — 30/30 routes; ingest routes ƒ; dashboards + agents compiled
+Runtime (POST with NO dataType param → auto-detect):
+  canonical gl-actuals      -> detected gl-actuals     confidence high (0.92)  200 validated
+  canonical budget          -> detected budget         confidence high (0.88)  200 validated
+  canonical forecast        -> detected forecast       confidence high (0.80)  200 validated
+  canonical headcount       -> detected headcount      confidence high (0.83)  200 validated
+  canonical vendors         -> detected vendors        confidence high (0.92)  200 validated
+  canonical external-labor  -> detected external-labor confidence high (0.92)  200 validated
+  synthetic dim_vendor      -> detected vendors        confidence high (1.0)   200
+  synthetic dim_headcount   -> detected headcount      confidence high (1.0)   200
+  synthetic dim_contractor  -> detected external-labor confidence high (0.83)  200
+  synthetic dim_cost_center -> confidence LOW (0.13)   -> 422 structured "could not determine data type"
+  synthetic dim_period      -> confidence LOW (0.13)   -> 422 structured rejection
+  override: canon_gl + dataType=budget -> uses budget; still reports detected=gl-actuals; 200
+  override on low-conf file (explicit param) -> bypasses detection gate (fails later file validation instead)
+  GET /uploads -> 200 (count grows); GET /upload info -> 200
+```
+
+Notes: a deliberately space-headed gl file (`"cost center"`) is **classified correctly** by the detector (gl-actuals, medium) but then rejected by file-structure validation, which still requires canonical headers the mapper can `pick()` — demonstrating the layers stay independent. The denormalized synthetic `fact_transactions_actuals.csv` (has `budget`+`forecast` columns, no `amount_actual`) detects as **budget / medium** — the confidence model correctly flags the ambiguity rather than asserting high confidence.
+
+### Remaining Sprint 11A work (updated)
+
+1. ✅ **11A.2** staging/history · 2. ✅ **11A.3** file-structure validation · 3. ✅ **11A.4** durable history · 4. ✅ **11A.5** data-type detection.
+5. **Stage rows → `fact_transactions` load** (the actual financial-row write; `staged` status lands here) — **explicitly deferred, not started.**
+6. **Architecture documentation** — extend `docs/INGESTION.md` for upload → detection → file-validation → semantic-validation → stage → durable-history → load.
+
+### Regression risk
+
+**Low / additive.** One new self-contained file + the upload route. The detector touches nothing outside itself. Back-compat preserved: callers passing an explicit `dataType` get identical behavior (detection is informational), and the response is a strict superset. The only behavior change for callers that *omit* `dataType` is auto-detection replacing the silent `gl-actuals` default — and an unrecognized file now gets a clear 422 instead of being mis-mapped as gl-actuals. No fact rows written. No dashboards, agents, KPIs, risk engine, role-analysis-engine, client config, auth, UI, or legacy `/api/ingest` touched. `fa367c8` is import-closed (route → detector; detector imports nothing).
+
+---
+
 ## ⚠️ Tooling backlog — CI "Type Check & Lint" job is red (pre-existing, NOT a code defect)
 
 Discovered during 11A.4 pre-work while confirming the deploy gate. **Not fixed this sprint** (out of scope; left for a dedicated tooling pass).
