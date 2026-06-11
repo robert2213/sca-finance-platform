@@ -6223,3 +6223,70 @@ KPI values: unchanged (kpi.ts / kpi.service.ts / dashboard untouched)
 ### Open / deferred (not Phase C scope)
 
 - **`riskEngine.ts:155` hardcoded `"2026-05"`** — functionally correct (equals `YTD_CUTOFF`) but will drift at the next month-close. Making it dynamic requires also updating the flag's "May" title and the `mayActuals` identifier; bundle that together in a future sprint rather than as a half-measure here.
+
+---
+
+## Sprint 11A.1 — Upload API Thin Slice
+
+**Date:** 2026-06-11
+**Commit:** `96f6045`
+**Status:** Complete.
+
+### Objective
+
+Stand up the smallest working upload endpoint that exercises the existing (built-but-unwired) V2 ingestion stack, so real client onboarding has a verified entrypoint to build on. Additive only — no persistence, no UI, no Databricks writes.
+
+### Context — two ingestion stacks (confirmed during audit)
+
+| Stack | Files | Wired to |
+|---|---|---|
+| **OLD** | `csv-parser.ts`, `excel-parser.ts`, `field-mapper.ts`, `cleaner.ts`, `writer.ts`, `types.ts` | live `POST /api/ingest` |
+| **NEW (V2)** | `parsers/*`, `mappers/*`, `ingest.orchestrator.ts`, `validation/*`, `models/finance.types.ts` | **nothing** (until 11A.1) |
+
+11A.1 wires the **NEW/V2** stack into a new endpoint and leaves the OLD stack + `POST /api/ingest` completely untouched.
+
+### What was built
+
+| File | Change |
+|---|---|
+| `src/app/api/ingest/upload/route.ts` | **NEW.** `POST /api/ingest/upload` (+ `GET` info). Accepts `multipart/form-data` (`file`, optional `dataType`, optional `period`), detects `.csv`/`.xlsx`, runs the V2 stack, returns a structured `UploadSummary`. 50 MB guard; try/catch → structured 4xx/5xx. |
+
+`UploadSummary` fields: `fileName`, `fileType`, `dataType`, `rowCount`, `columnCount`, `validationStatus` (`pass`/`warn`/`error`, reuses `ValidationStatus`), `errorCount`, `warningCount`, `sampleRows` (first 5 raw rows), `readyForStaging` (`validation.passed && rowCount > 0`).
+
+### V2 components reused (no changes to any of them)
+
+- `ingest.orchestrator.ts` → `ingestFile()` (parse → map), `DataType`
+- `parsers/csv.parser.ts` → `parseCsvString()` · `parsers/xlsx.parser.ts` → `parseXlsx()` (raw row/column shape)
+- `validation/validation.runner.ts` → `runValidation()` → `ValidationResult`
+- `models/finance.types.ts` → `ValidationStatus` · `config/client.config.ts` → `defaultConfig` (clientId, reportingPeriods, validator config)
+
+### Validation
+
+```
+TypeScript: 0 errors        (npx tsc --noEmit)
+Build:      ✓ 30/30 routes  (npm run build) — /api/ingest/upload registered;
+            legacy /api/ingest unchanged; all dashboards + agents compile
+Runtime (curl against dev server, no DB I/O involved):
+  valid gl-actuals CSV (3 rows)        -> 200 {validationStatus:"pass",  errorCount:0, readyForStaging:true}
+  CSV missing business_unit + category -> 200 {validationStatus:"error", errorCount:4, readyForStaging:false}
+  GET /api/ingest/upload               -> 200 endpoint-info JSON
+```
+
+### Design notes / known limitations
+
+- **Double-parse:** the route parses once for raw structure (row/column/sample) and `ingestFile()` re-parses internally for mapping. Cheap; acceptable for a thin slice. Threading raw shape through the orchestrator would remove it.
+- **`dataType` default = `gl-actuals`** when the field is omitted (auto-detection is deferred). `period` defaults to the first configured reporting period; it only stamps non-transactional types.
+- **XLSX path** is compile-verified and shares `parseXlsx` (already used elsewhere); runtime test above exercised the CSV path.
+
+### Remaining Sprint 11A work (deferred, in priority order)
+
+1. **Staging model + persistence** — `StagedUpload` record (filename, timestamp, rowCount, columnCount, validationStatus, readinessStatus) and a store (in-memory first, then durable / Databricks staging table).
+2. **Upload history service** — list/get staged uploads + their validation results + ingestion status.
+3. **File-structure validation foundation** — raw-upload checks the semantic validators don't cover: empty-file, duplicate-header, required-column, period-format. (The existing `validation/` validators are semantic, on mapped records.)
+4. **`dataType` auto-detection** from headers (remove the gl-actuals default).
+5. **Wire staged → Databricks load** (the actual write step; out of 11A scope).
+6. **Architecture documentation** for the upload→stage→load pipeline (extend `docs/INGESTION.md`).
+
+### Regression Risk
+
+**None.** One new, self-contained route file. No existing file modified; `POST /api/ingest`, dashboards, agents, KPI logic, risk engine, and client config are all untouched. `git status` shows zero tracked-file changes beyond the added route.
