@@ -6844,6 +6844,98 @@ Three layers, all verified against the **live** warehouse:
 
 ---
 
+## Sprint 11A.7.1 — Databricks Load Activation (load on the existing schema, no migration)
+
+**Date:** 2026-06-11
+**Commit:** `feat` commit on the service + this `docs(handoff)` follow-up.
+**Status:** Complete — **Upload → Dashboard → Agent proven end-to-end against the LIVE warehouse.**
+
+### Objective
+
+11A.7 wired `DatabricksFinancialStage` but every upload still reported `stageBackend:"in-memory"`: the 19-column INSERT referenced four lineage columns (`upload_id`, `source_file`, `source_type`, `ingested_at`) that **migration 004 was never run** to add, so every INSERT failed and fell back. This sprint determines whether `fact_transactions` can accept canonical records **on the existing schema** and activates the real Delta load **without requiring migration 004**.
+
+### Audit (Tasks 1–3) — against the live warehouse
+
+`DESCRIBE TABLE nexora.finance.fact_transactions` (live) returns exactly the **15 base columns** (`transaction_id, date, period, cost_center_id, cost_center_name, vendor_id, category, subcategory, business_unit, amount_actual, amount_budget, amount_forecast, transaction_type, source_system, client_id`), partitioned by `period`, **no lineage columns** — migration 004 unrun (matches migration 003 state). Table holds **1080 demo rows, all `client_id='demo-client'`** (540 `gl-export`/`actual` + 540 `budget-export`/`budget`), `0` with `source_system='upload'`.
+
+**Are the four lineage columns required? NO.** Three independent proofs:
+1. The legacy `src/lib/ingestion/writer.ts` already writes financial rows to `fact_transactions` using **only the 15 base columns**.
+2. Every dashboard query (`src/lib/queries/actuals.ts`) and the agent path (`src/agents/dataContext.ts` → `buildSnapshotFromDB`) filter **only** on `transaction_type`, `period`, `client_id`, `business_unit`, `category` — **never** on a lineage column.
+3. The live table's 1080 rows are lineage-free and fully drive the current dashboards/agents.
+The lineage columns are pure traceability metadata, **not** a load requirement.
+
+### Fix (Task 4) — schema-adaptive loader (smallest safe, forward-compatible)
+
+`src/lib/ingestion/databricks-financial-stage.service.ts` now **probes the live table once** (`DESCRIBE TABLE`, result cached on the instance) and adapts:
+- **Lineage columns present** (migration 004 later run) → writes all **19 columns**, reads by `upload_id` — i.e. 11A.7 behavior, **no revert needed**.
+- **Lineage columns absent** (current live state) → writes the existing **15 columns**, so rows land **durably** in `fact_transactions`. `INSERT`-only; `transaction_id = ${upload_id}-<idx>`, `source_system='upload'`, `transaction_type` stamped honestly (gl-actuals→`actual`, budget→`budget`, …).
+
+Reads degrade cleanly when lineage is absent: `getByUpload`/`listUploadSummaries` (which need `upload_id`/`source_file`) delegate to the in-memory mirror that `stage()` now populates in no-lineage mode; `count()` reports the durable total via `WHERE source_system='upload'`. The existing Databricks-failure → in-memory fallback (and the injected-fallback pattern) is **unchanged**. If the probe itself fails it assumes "no lineage" (safest — the base INSERT works on the original schema). One additive, informational `stageWarning` is surfaced in no-lineage mode noting the rows loaded on the 15-column schema.
+
+### Files
+
+| File | Change |
+|---|---|
+| `src/lib/ingestion/databricks-financial-stage.service.ts` | **MODIFIED.** Added `hasLineageColumns()` probe (cached); `stage()`/`insertChunk()`/`mapValues()` are schema-adaptive (15 or 19 cols); `count()`/`getByUpload()`/`listUploadSummaries()` degrade when lineage absent; header doc updated. INSERT-only; no MERGE/UPDATE/DELETE/TRUNCATE. |
+| `tests/databricks-probe.js` | **NEW.** Standalone `@databricks/sql` probe (loads `.env.local`) used to audit the live schema and verify loaded rows. Read-only by default. |
+| `tests/synthetic-data/upload_proof_gl_actuals.csv` | **NEW.** 3-row canonical gl-actuals fixture with a distinctive signature (`business_unit='ZZ Upload Proof BU'`, `cost_center='CC-UPLOAD-PROOF'`) for the runtime proof. |
+
+No dashboards, agents, KPI logic, risk engine, client config, auth, UI, or legacy `/api/ingest` touched.
+
+### Runtime verification (Tasks 5–8) — LIVE warehouse, real `.env.local` creds
+
+```
+Gate 1  TypeScript: 0 errors            (npx tsc --noEmit)
+Gate 2  Build:      ✓ next build — 30 routes; /api/ingest/upload ƒ; dashboards + agents compiled
+
+Baseline (pre-upload):  YTD actual 21,389,305 · YTD budget 20,833,340 · total rows 1080 · uploaded 0 · proof BU absent
+
+Task 5  POST /api/ingest/upload (upload_proof_gl_actuals.csv, dataType=gl-actuals)
+        → 200 status "staged"  rowsReceived 3 / validated 3 / staged 3 / rejected 0
+        → stageBackend "databricks"   (was always "in-memory" in 11A.7 — the activation)
+        → stageWarning: "no ingestion-lineage columns (migration 004 not run); rows loaded into the existing 15-column schema"
+
+Task 6  SELECT … WHERE source_system='upload'  → 3 rows present (transaction_id upl_mqa4k6pa_dosjlc-0000NN,
+        period 2026-05, transaction_type 'actual', client_id 'demo-client', amounts 111111/222222/333333)
+        Counts: total 1083 · uploaded 3
+
+Task 7  Dashboard query (exact SQL from queries/actuals.ts getYTDSummary):
+          YTD actual 21,389,305 → 22,055,971   (Δ +666,666 = exact sum of uploaded amount_actual) ✓
+          YTD budget 20,833,340 → 21,133,340   (Δ +300,000) ✓
+        getByBusinessUnit query now returns 'ZZ Upload Proof BU' actual 666,666 / budget 300,000 ✓
+
+Task 8  POST /api/agent (agentId=fpa): answer cites "YTD IT spend is $22,055,971" and "5 of 7 business units
+        over budget" (was 6 BUs → 7, the uploaded BU). Server log: DB_SNAPSHOT_BUILT ytdActual=22055971.
+        No "[financial-stage] Databricks … failed" warning logged → the INSERT path succeeded (no fallback).
+```
+
+### Documentation (per the activation requirements)
+
+- **Migration 004 is OPTIONAL / a future lineage enhancement.** It is no longer required to load financial data. Run it only when you want per-row ingestion lineage (`upload_id`/`source_file`/`source_type`/`ingested_at`) and Databricks-side per-upload inspection; the loader auto-upgrades to the 19-column write the next time the process probes the table after 004 is applied (a restart re-probes).
+- **The existing 15-column schema is sufficient for MVP loading.** Uploaded rows are visible to every dashboard, KPI, agent, and risk query because those filter only on `transaction_type`/`period`/`client_id`/`business_unit`/`category`.
+- **`upload_id`-based inspection degrades when lineage is absent.** `GET /api/ingest/staged?uploadId=` and `listUploadSummaries` become **process-local** (served from the in-memory mirror) until 004 runs; `count()` stays durable via `source_system='upload'`. Dashboards/agents are unaffected.
+- **Durable dashboard/agent visibility is achieved without lineage columns** — proven above (rows persist in `fact_transactions`; YTD/BU/agent all reflect them).
+
+### ⚠️ Leftover proof rows (action for next session)
+
+The 3 verification rows (`source_system='upload'`, `business_unit='ZZ Upload Proof BU'`, `upload_id='upl_mqa4k6pa_dosjlc'`, +$666,666 actual in period 2026-05) **remain in the live `fact_transactions`** — they slightly inflate the demo's YTD actual (now 22,055,971). Cleanup was intentionally **not** performed: a `DELETE` was blocked by the insert-only safety guard (correct — the loader and this sprint are insert-only). To restore the demo to its original 1080 rows, run once **manually** in the Databricks SQL editor:
+```sql
+DELETE FROM nexora.finance.fact_transactions WHERE source_system = 'upload';
+```
+
+### Remaining ingestion roadmap
+
+1. ✅ 11A.2–11A.6 · 2. ✅ 11A.7 Databricks fact load · 3. ✅ **11A.7.1 load activation on the existing schema.**
+4. **Optional:** run `migrations/004` (and `003`) for full lineage + Databricks-side per-upload inspection; then re-validate the 19-column path + `SELECT … WHERE upload_id = ?`.
+5. **Idempotent re-upload** — dedup/replace by natural key (MERGE) once required (currently INSERT-only: re-uploading a file appends a fresh `upload_id` set).
+6. **Architecture docs** — extend `docs/INGESTION.md` for the full upload → detect → validate → transform → stage → load pipeline.
+
+### Regression risk
+
+**Low / additive.** One tracked file changed (the loader) + two test artifacts. INSERT-only — no MERGE/UPDATE/DELETE/TRUNCATE; demo rows (`source_system != 'upload'`) never touched. Lineage-present behavior is byte-for-byte the 11A.7 path (forward-compatible). Worst case (probe or INSERT fails) → the existing in-memory fallback, identical to before. No dashboards, agents, KPI logic, risk engine, client config, auth, UI, or legacy `/api/ingest` touched.
+
+---
+
 ## ⚠️ Tooling backlog — CI "Type Check & Lint" job is red (pre-existing, NOT a code defect)
 
 Discovered during 11A.4 pre-work while confirming the deploy gate. **Not fixed this sprint** (out of scope; left for a dedicated tooling pass).
