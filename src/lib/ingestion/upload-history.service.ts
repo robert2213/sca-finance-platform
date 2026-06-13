@@ -41,13 +41,17 @@ export class InMemoryUploadHistory implements UploadHistoryStore {
     return record;
   }
 
-  async getUpload(uploadId: string): Promise<StagedUpload | undefined> {
-    return this.records.get(uploadId);
+  async getUpload(uploadId: string, clientId: string): Promise<StagedUpload | undefined> {
+    const record = this.records.get(uploadId);
+    // Tenant scope: never return another tenant's upload.
+    return record && record.clientId === clientId ? record : undefined;
   }
 
-  async listUploads(): Promise<StagedUpload[]> {
+  async listUploads(clientId: string): Promise<StagedUpload[]> {
     // Insertion order reversed → most recent first (deterministic, no timestamp ties).
-    return Array.from(this.records.values()).reverse();
+    return Array.from(this.records.values())
+      .filter((r) => r.clientId === clientId)
+      .reverse();
   }
 
   async updateStatus(uploadId: string, status: UploadStatus): Promise<StagedUpload | undefined> {

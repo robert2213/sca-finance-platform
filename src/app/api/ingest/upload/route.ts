@@ -196,6 +196,7 @@ async function handleUpload(request: NextRequest, ctx: TenantContext) {
     // structural and required-columns rejection branches below).
     const fileFailureResponse = async (): Promise<NextResponse> => {
       const failed = await uploadHistory.addUpload({
+        clientId,
         fileName: file.name,
         fileType,
         dataType,
@@ -285,6 +286,7 @@ async function handleUpload(request: NextRequest, ctx: TenantContext) {
     // ── 4. HISTORY (Sprint 11A.2/11A.4) ──
     // addUpload() registers as "uploaded"; the final status is set after staging.
     const record = await uploadHistory.addUpload({
+      clientId,
       fileName: file.name,
       fileType,
       dataType,

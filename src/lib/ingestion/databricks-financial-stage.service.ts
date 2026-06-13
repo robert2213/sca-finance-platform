@@ -41,7 +41,6 @@ import type {
   UploadStageSummary,
 } from "./financial-stage.types";
 import { dbQuery } from "@/lib/databricks";
-import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
 // Qualified table name. Mirrors the adapter's catalog/schema env defaults so the
 // reference is independent of the session's initial catalog/schema.
@@ -254,12 +253,12 @@ export class DatabricksFinancialStage implements FinancialStage {
       : baseParams;
   }
 
-  async getByUpload(uploadId: string): Promise<CanonicalFinancialRecord[]> {
+  async getByUpload(uploadId: string, clientId: string): Promise<CanonicalFinancialRecord[]> {
     try {
       // No lineage columns → upload_id is not stored in Databricks. Per-upload
       // detail comes from the process-local in-memory mirror written in stage().
       if (!(await this.hasLineageColumns())) {
-        return this.fallback.getByUpload(uploadId);
+        return this.fallback.getByUpload(uploadId, clientId);
       }
       const res = await dbQuery<Record<string, unknown>>(
         `SELECT period, cost_center_id, cost_center_name, business_unit, category,
@@ -267,16 +266,16 @@ export class DatabricksFinancialStage implements FinancialStage {
                 vendor_id, upload_id, source_file, source_type, client_id
          FROM ${TABLE}
          WHERE upload_id = ? AND client_id = ?`,
-        [uploadId, DEFAULT_CLIENT_ID]
+        [uploadId, clientId]
       );
       return res.rows.map(rowToCanonical);
     } catch (err) {
       this.warn("getByUpload", err);
-      return this.fallback.getByUpload(uploadId);
+      return this.fallback.getByUpload(uploadId, clientId);
     }
   }
 
-  async count(): Promise<number> {
+  async count(clientId: string): Promise<number> {
     try {
       // With lineage, count rows carrying an upload_id; without it, count rows
       // stamped source_system = 'upload' (the durable marker for ingested rows).
@@ -285,33 +284,33 @@ export class DatabricksFinancialStage implements FinancialStage {
         ? await dbQuery<{ n: unknown }>(
             `SELECT COUNT(*) AS n FROM ${TABLE}
              WHERE upload_id IS NOT NULL AND client_id = ?`,
-            [DEFAULT_CLIENT_ID]
+            [clientId]
           )
         : await dbQuery<{ n: unknown }>(
             `SELECT COUNT(*) AS n FROM ${TABLE}
              WHERE source_system = ? AND client_id = ?`,
-            [SOURCE_SYSTEM, DEFAULT_CLIENT_ID]
+            [SOURCE_SYSTEM, clientId]
           );
       return num(res.rows[0]?.n);
     } catch (err) {
       this.warn("count", err);
-      return this.fallback.count();
+      return this.fallback.count(clientId);
     }
   }
 
-  async listUploadSummaries(): Promise<UploadStageSummary[]> {
+  async listUploadSummaries(clientId: string): Promise<UploadStageSummary[]> {
     try {
       // Per-upload roll-up needs upload_id/source_file. Without the lineage
       // columns those aren't in Databricks → use the process-local mirror.
       if (!(await this.hasLineageColumns())) {
-        return this.fallback.listUploadSummaries();
+        return this.fallback.listUploadSummaries(clientId);
       }
       const res = await dbQuery<Record<string, unknown>>(
         `SELECT upload_id, source_type, source_file, COUNT(*) AS n
          FROM ${TABLE}
          WHERE upload_id IS NOT NULL AND client_id = ?
          GROUP BY upload_id, source_type, source_file`,
-        [DEFAULT_CLIENT_ID]
+        [clientId]
       );
       return res.rows.map((r) => ({
         uploadId: str(r.upload_id),
@@ -321,7 +320,7 @@ export class DatabricksFinancialStage implements FinancialStage {
       }));
     } catch (err) {
       this.warn("listUploadSummaries", err);
-      return this.fallback.listUploadSummaries();
+      return this.fallback.listUploadSummaries(clientId);
     }
   }
 }

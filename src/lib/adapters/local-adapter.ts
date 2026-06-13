@@ -66,6 +66,13 @@ async function getDb(): Promise<Database> {
 // literal here to avoid importing the config layer into the adapter.
 const LOCAL_DEFAULT_CLIENT_ID = "demo-client";
 
+// Tables insertRows() is permitted to write. Guards the table-name interpolation.
+const ALLOWED_INSERT_TABLES = new Set<string>([
+  "fact_transactions", "dim_vendor", "dim_cost_center", "dim_period",
+  "dim_contractor", "dim_headcount", "data_quality_log",
+  "organization", "app_user", "audit_log",
+]);
+
 function initSchema(db: Database) {
   db.run(`
     CREATE TABLE IF NOT EXISTS fact_transactions (
@@ -396,8 +403,18 @@ export class LocalAdapter implements DBAdapter {
     rows: Record<string, unknown>[]
   ): Promise<void> {
     if (!rows.length) return;
+    // Defense-in-depth: table + column names are interpolated into SQL, so
+    // reject anything outside the known schema / identifier charset.
+    if (!ALLOWED_INSERT_TABLES.has(tableName)) {
+      throw new Error(`insertRows: refused unknown table "${tableName}"`);
+    }
     const db = await getDb();
     const cols = Object.keys(rows[0]);
+    for (const c of cols) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c)) {
+        throw new Error(`insertRows: refused unsafe column name "${c}"`);
+      }
+    }
     const placeholders = cols.map(() => "?").join(", ");
     const sql = `INSERT OR REPLACE INTO ${tableName} (${cols.join(", ")}) VALUES (${placeholders})`;
     const stmt = db.prepare(sql);

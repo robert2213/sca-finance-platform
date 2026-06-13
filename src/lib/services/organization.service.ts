@@ -96,12 +96,23 @@ export async function upsertOrganization(input: {
   return rowToOrg(record);
 }
 
+const ALLOWED_TRANSITIONS: Record<OrganizationStatus, OrganizationStatus[]> = {
+  onboarding: ["active", "suspended", "offboarded"],
+  active: ["suspended", "offboarded"],
+  suspended: ["active", "offboarded"],
+  offboarded: [],
+};
+
 export async function setOrganizationStatus(
   id: string,
   status: OrganizationStatus
 ): Promise<Organization | null> {
   const existing = await getOrganization(id);
   if (!existing) return null;
+  if (existing.status === status) return existing; // idempotent
+  if (!ALLOWED_TRANSITIONS[existing.status].includes(status)) {
+    throw new Error(`Illegal organization status transition: ${existing.status} -> ${status}`);
+  }
   return upsertOrganization({ id, name: existing.name, tenantId: existing.tenantId, status, settings: existing.settings });
 }
 

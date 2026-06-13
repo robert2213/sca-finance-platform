@@ -60,14 +60,14 @@ export async function writeTransactions(
     const chunk = transactions.slice(i, i + CHUNK);
     const values = chunk
       .map((t) =>
-        `('${esc(t.transaction_id)}','${t.date}','${t.period}',` +
+        `('${esc(t.transaction_id)}','${esc(t.date)}','${esc(t.period)}',` +
         `'${esc(t.cost_center_id)}','${esc(t.cost_center_name)}',` +
         `${t.vendor_id ? `'${esc(t.vendor_id)}'` : "NULL"},` +
         `'${esc(t.category)}',` +
         `${t.subcategory ? `'${esc(t.subcategory)}'` : "NULL"},` +
         `'${esc(t.business_unit)}',` +
         `${t.amount_actual},${t.amount_budget},${t.amount_forecast},` +
-        `'${t.transaction_type}','${esc(t.source_system)}','${esc(t.client_id)}')`
+        `'${esc(t.transaction_type)}','${esc(t.source_system)}','${esc(t.client_id)}')`
       )
       .join(",\n");
 
@@ -80,6 +80,7 @@ export async function writeTransactions(
                amount_actual, amount_budget, amount_forecast,
                transaction_type, source_system, client_id)
       ) AS source ON target.transaction_id = source.transaction_id
+                 AND target.client_id = source.client_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
     `;
@@ -151,6 +152,7 @@ export async function writeVendors(
                contract_end, contract_value, ytd_spend, remaining,
                business_unit, auto_renew, risk_level, status, client_id)
       ) AS source ON target.vendor_id = source.vendor_id
+                 AND target.client_id = source.client_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
     `;
@@ -261,6 +263,7 @@ export async function writeHeadcount(
         AS src(position_id, title, business_unit, level, status,
                location, open_date, fill_date, annual_salary, is_backfill, client_id)
       ) AS source ON target.position_id = source.position_id
+                 AND target.client_id = source.client_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
     `;
@@ -331,6 +334,7 @@ export async function writeContractors(
                cost_center_name, business_unit, monthly_rate, ytd_spend, budget,
                start_date, end_date, status, client_id)
       ) AS source ON target.contractor_id = source.contractor_id
+                 AND target.client_id = source.client_id
       WHEN MATCHED THEN UPDATE SET *
       WHEN NOT MATCHED THEN INSERT *
     `;
@@ -383,6 +387,7 @@ export async function writeCostCenters(
       SELECT * FROM VALUES ${values}
       AS src(cost_center_id, cost_center_name, department, owner, budget_owner, client_id)
     ) AS source ON target.cost_center_id = source.cost_center_id
+               AND target.client_id = source.client_id
     WHEN MATCHED THEN UPDATE SET *
     WHEN NOT MATCHED THEN INSERT *
   `;

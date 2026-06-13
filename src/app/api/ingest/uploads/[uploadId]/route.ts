@@ -1,25 +1,31 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { uploadHistory } from "@/lib/ingestion/upload-history.resolver";
+import { withTenant, jsonError } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 
-// Reads the live store at request time (dynamic segment already forces
-// on-demand rendering; declared explicitly for intent/no caching).
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/ingest/uploads/[uploadId]  — Sprint 11A.2 (durable store in 11A.4)
- *
- * Returns the full staging record for one upload, or 404 if unknown.
+ * GET /api/ingest/uploads/[uploadId]
+ * Returns one upload record — only if it belongs to the caller's tenant.
+ * Guarded by data:view_validation; tenant-scoped via ctx.clientId.
  */
-export async function GET(
+async function handleGetUpload(
   _request: NextRequest,
-  { params }: { params: { uploadId: string } }
+  ctx: TenantContext,
+  segment: { params?: Record<string, string | string[]> }
 ) {
-  const record = await uploadHistory.getUpload(params.uploadId);
+  const raw = segment.params?.uploadId;
+  const uploadId = Array.isArray(raw) ? raw[0] : raw ?? "";
+  const record = await uploadHistory.getUpload(uploadId, ctx.clientId);
   if (!record) {
-    return NextResponse.json(
-      { error: `Upload "${params.uploadId}" not found` },
-      { status: 404 }
-    );
+    return jsonError(`Upload "${uploadId}" not found`, 404);
   }
   return NextResponse.json(record);
 }
+
+export const GET = withTenant(handleGetUpload, {
+  permission: "data:view_validation",
+  action: "ingest.uploads.get",
+});

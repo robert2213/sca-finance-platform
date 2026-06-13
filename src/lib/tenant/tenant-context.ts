@@ -112,8 +112,22 @@ export const getTenantContext = cache(async (): Promise<TenantContext> => {
     // request — degrade to the coarse role.
     let assignedAppRole: string | null = null;
     try {
-      const { getOrgUserRole } = await import("@/lib/services/user.service");
-      assignedAppRole = await getOrgUserRole(orgId, userId);
+      const { getUser } = await import("@/lib/services/user.service");
+      const member = await getUser(orgId, userId);
+      // Fail closed for disabled members — no tenant scope, no access. A disabled
+      // user must not retain even ReadOnly access via the coarse Clerk fallback.
+      if (member && member.status === "disabled") {
+        return {
+          clientId: "",
+          orgId,
+          userId,
+          role: "ReadOnly",
+          isDemo: false,
+          isAuthenticated: true,
+          hasTenant: false,
+        };
+      }
+      assignedAppRole = member ? member.role : null;
     } catch {
       assignedAppRole = null;
     }

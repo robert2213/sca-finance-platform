@@ -113,6 +113,19 @@ export function assertPermission(ctx: TenantContext, permission: Permission): vo
   }
 }
 
+/**
+ * Assert the caller may administer the target organization. SystemAdmin (and the
+ * demo operator) may act cross-org; everyone else may only act on their OWN
+ * active organization. Prevents an Organization Admin of tenant A from managing
+ * tenant B by passing a different orgId in the URL.
+ */
+export function assertOrgScope(ctx: TenantContext, orgId: string): void {
+  if (ctx.role === "SystemAdmin" || ctx.isDemo) return;
+  if (!orgId || ctx.orgId !== orgId) {
+    throw new TenantError("Forbidden — cannot administer another organization", 403);
+  }
+}
+
 /** Parse + validate a JSON body, throwing TenantError(400) on malformed input. */
 export async function readJson<T = Record<string, unknown>>(req: NextRequest): Promise<T> {
   try {

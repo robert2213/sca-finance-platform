@@ -21,6 +21,7 @@ export type UploadStatus = "uploaded" | "validated" | "staged" | "failed";
 /** A single staged-upload metadata record. */
 export interface StagedUpload {
   uploadId: string;
+  clientId: string;                  // tenant that owns this upload (isolation key)
   fileName: string;
   fileType: "csv" | "xlsx";
   dataType: DataType;
@@ -53,10 +54,10 @@ export type NewUploadInput = Omit<StagedUpload, "uploadId" | "uploadedAt" | "sta
 export interface UploadHistoryStore {
   /** Register a new upload; resolves to the created record (status: "uploaded"). */
   addUpload(input: NewUploadInput): Promise<StagedUpload>;
-  /** Fetch one record by id, or undefined if not found. */
-  getUpload(uploadId: string): Promise<StagedUpload | undefined>;
-  /** All records, most recent first. */
-  listUploads(): Promise<StagedUpload[]>;
+  /** Fetch one record by id, scoped to the caller's tenant. */
+  getUpload(uploadId: string, clientId: string): Promise<StagedUpload | undefined>;
+  /** All records for one tenant, most recent first. */
+  listUploads(clientId: string): Promise<StagedUpload[]>;
   /** Transition a record's status; resolves to the updated record, or undefined if not found. */
   updateStatus(uploadId: string, status: UploadStatus): Promise<StagedUpload | undefined>;
 }

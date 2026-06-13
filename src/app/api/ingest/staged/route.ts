@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { financialStage } from "@/lib/ingestion/financial-stage.resolver";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 
 // Reads the live stage at request time — must not be statically cached.
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/ingest/staged  — Sprint 11A.6
- *
- * Inspect the financial staging buffer (canonical records produced from validated
- * uploads). NO Databricks / fact_transactions reads — in-memory stage only.
- *
- *   GET /api/ingest/staged                    → { totalRecords, uploads: [{ uploadId, sourceType, sourceFile, count }] }
- *   GET /api/ingest/staged?uploadId=<id>      → { uploadId, count, records: [...] }
+ * GET /api/ingest/staged
+ * Inspect the financial staging buffer FOR THE CALLER'S TENANT only.
+ * Guarded by data:view_validation; every read scoped via ctx.clientId.
  */
-export async function GET(request: NextRequest) {
+async function handleStaged(request: NextRequest, ctx: TenantContext) {
   const uploadId = request.nextUrl.searchParams.get("uploadId");
 
   if (uploadId) {
-    const records = await financialStage.getByUpload(uploadId);
+    const records = await financialStage.getByUpload(uploadId, ctx.clientId);
     return NextResponse.json({ uploadId, count: records.length, records });
   }
 
   const [totalRecords, uploads] = await Promise.all([
-    financialStage.count(),
-    financialStage.listUploadSummaries(),
+    financialStage.count(ctx.clientId),
+    financialStage.listUploadSummaries(ctx.clientId),
   ]);
   return NextResponse.json({ totalRecords, uploads });
 }
+
+export const GET = withTenant(handleStaged, {
+  permission: "data:view_validation",
+  action: "ingest.staged",
+});

@@ -2,7 +2,9 @@ import { SignIn } from "@clerk/nextjs";
 
 export const dynamic = "force-dynamic";
 
-const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+const clerkEnabled = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
+);
 
 export default function SignInPage() {
   if (!clerkEnabled) {
