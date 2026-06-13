@@ -7,7 +7,7 @@ import StatsBanner from "@/components/dashboard/StatsBanner";
 import {
   getHeadcount, getHCSummary, getOpenReqs, getHCByBusinessUnit,
 } from "@/lib/queries";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -25,7 +25,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function HeadcountPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [headcount, summary, openReqs, byBU] = await Promise.all([
     getHeadcount(clientId),
     getHCSummary(clientId),

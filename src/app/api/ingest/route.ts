@@ -11,7 +11,8 @@ import {
   writeHeadcount, writeContractors, writeCostCenters, writePeriods,
 } from "@/lib/ingestion/writer";
 import type { IngestionResult, SourceSystem } from "@/lib/ingestion/types";
-import defaultConfig from "@/config/client.config";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
@@ -25,7 +26,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
  *
  * Returns: IngestionResult JSON
  */
-export async function POST(request: NextRequest) {
+async function handleIngest(request: NextRequest, ctx: TenantContext) {
   const start = Date.now();
 
   let formData: FormData;
@@ -98,8 +99,8 @@ export async function POST(request: NextRequest) {
   }
 
   const rowsReceived = parsed.rows.length;
-  // Use active client from config — replaced by session clientId once Clerk is wired
-  const clientId = defaultConfig.clientId;
+  // Tenant from the authenticated session — data is written under the caller's tenant.
+  const clientId = ctx.clientId;
 
   // ─── Map → Clean → Write ────────────────────────────────────────────────────
 
@@ -225,6 +226,9 @@ export async function POST(request: NextRequest) {
     durationMs: Date.now() - start,
   });
 }
+
+// Only members with data:upload may ingest, and rows are written under their tenant.
+export const POST = withTenant(handleIngest, { permission: "data:upload", action: "ingest.upload" });
 
 export async function GET() {
   return NextResponse.json({

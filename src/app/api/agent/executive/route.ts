@@ -12,7 +12,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getFinanceSnapshot, resolveSnapshot } from "@/agents/dataContext";
-import { resolveClientId } from "@/config/client.resolver";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
@@ -346,9 +347,9 @@ function parseDeckResponse(
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 
-export async function POST(_request: NextRequest) {
-  // Databricks-backed snapshot (falls back to static getFinanceSnapshot() on error/missing env)
-  const snapshot = await resolveSnapshot(resolveClientId());
+async function handleExecutive(_request: NextRequest, ctx: TenantContext) {
+  // Tenant-scoped snapshot from the authenticated session.
+  const snapshot = await resolveSnapshot(ctx.clientId);
   const apiKey   = process.env.ANTHROPIC_API_KEY;
 
   if (apiKey) {
@@ -387,6 +388,8 @@ export async function POST(_request: NextRequest) {
   console.log("[Executive API] Returning mock deck");
   return NextResponse.json(deck);
 }
+
+export const POST = withTenant(handleExecutive, { permission: "reports:view_executive", action: "agent.executive" });
 
 export async function GET() {
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);

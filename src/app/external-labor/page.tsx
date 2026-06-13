@@ -8,7 +8,7 @@ import {
   getContractors, getOverBudgetContractors, getEndingSoonContractors,
   getContractorsByBU,
 } from "@/lib/queries";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -26,7 +26,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function ExternalLaborPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [contractors, overBudget, endingSoon, byBU] = await Promise.all([
     getContractors(clientId),
     getOverBudgetContractors(clientId),

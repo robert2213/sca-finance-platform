@@ -380,12 +380,51 @@ export async function buildSnapshotFromDB(
 }
 
 /**
+ * Empty snapshot — zeroed totals and empty collections. Returned to a real
+ * (non-demo) tenant when no live data is available, so we NEVER fall back to
+ * the static demo dataset for someone else's tenant.
+ */
+export function buildEmptySnapshot(): FinanceSnapshot {
+  const zeroMonth = { month: "Jan" as const, actual: 0, budget: 0, forecast: 0 };
+  const empty = [] as unknown;
+  return {
+    ytdActual: 0, ytdBudget: 0, ytdVariance: 0, ytdVariancePct: 0,
+    fullYearForecast: 0, fullYearBudget: 0, periodLabel: "No data",
+    monthly: empty as FinanceSnapshot["monthly"],
+    currentMonth: zeroMonth, priorMonth: zeroMonth, momGrowthPct: 0,
+    byBU: empty as FinanceSnapshot["byBU"], topOverBU: null, topFavBU: null,
+    cloudYTD: 0, cloudBudget: 0, cloudVariance: 0, cloudVariancePct: 0,
+    cloudByProvider: empty as FinanceSnapshot["cloudByProvider"], cloudMoMGrowth: 0,
+    laborYTD: 0, laborBudget: 0, laborVariance: 0,
+    overBudgetContractors: empty as FinanceSnapshot["overBudgetContractors"],
+    endingSoonContractors: empty as FinanceSnapshot["endingSoonContractors"],
+    laborByBU: empty as FinanceSnapshot["laborByBU"], totalExcessLabor: 0,
+    vendorYTDSpend: 0, vendorCommitment: 0,
+    expiringVendors90: empty as FinanceSnapshot["expiringVendors90"],
+    expiringVendors180: empty as FinanceSnapshot["expiringVendors180"],
+    highRiskVendors: empty as FinanceSnapshot["highRiskVendors"],
+    topVendors: empty as FinanceSnapshot["topVendors"],
+    hcSummary: { total: 0, filled: 0, open: 0, fillRate: 0, totalAnnualSalaryBudget: 0 } as unknown as FinanceSnapshot["hcSummary"],
+    fillRate: 0, openReqs: empty as FinanceSnapshot["openReqs"],
+    salaryBudget: 0, openReqSalaryAtRisk: 0,
+    hcByBU: empty as FinanceSnapshot["hcByBU"],
+    headcount: empty as FinanceSnapshot["headcount"],
+    contractors: empty as FinanceSnapshot["contractors"],
+    risks: empty as FinanceSnapshot["risks"],
+    actions: empty as FinanceSnapshot["actions"],
+    fmt: formatCurrency, pct: formatPercent, dt: formatDate, daysUntil,
+  };
+}
+
+/**
  * Shared snapshot resolver used by every agent API route.
  *
- * Returns the Databricks-backed snapshot when DATABRICKS_HOST is set, and
- * falls back to the static getFinanceSnapshot() if the env is absent or the
- * DB query throws. This is the single place that decides "live vs static" so
- * /api/agent, /api/agent/executive, and /api/agent/orchestrate stay aligned.
+ * Tenant-safe: returns the Databricks-backed snapshot (scoped by clientId) when
+ * DATABRICKS_HOST is set. The STATIC demo snapshot is only ever returned for the
+ * demo tenant; any other tenant gets an empty snapshot when live data is
+ * unavailable, so demo data can never leak into a real tenant's session. This
+ * is the single place that decides "live vs static" so /api/agent,
+ * /api/agent/executive, and /api/agent/orchestrate stay aligned.
  */
 export async function resolveSnapshot(
   clientId: string = DEFAULT_CLIENT_ID
@@ -395,10 +434,13 @@ export async function resolveSnapshot(
       return await buildSnapshotFromDB(clientId);
     } catch (err) {
       console.error(
-        "[resolveSnapshot] DB snapshot failed, falling back to static getFinanceSnapshot():",
+        "[resolveSnapshot] DB snapshot failed for tenant:",
+        clientId,
         err
       );
     }
   }
-  return getFinanceSnapshot();
+  // Fallback path — only the demo tenant may use the static demo dataset.
+  if (clientId === DEFAULT_CLIENT_ID) return getFinanceSnapshot();
+  return buildEmptySnapshot();
 }

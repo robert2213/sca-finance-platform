@@ -1,17 +1,23 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAdapter, getConnectionMode } from "@/lib/databricks";
 import { ALL_DDL } from "@/lib/schema/ddl";
+import { withTenant, assertPermission } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
+
+// Permission-gated + session-dependent — never statically optimized.
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/db/init
  *
- * Idempotently creates all Nexora Delta tables in Databricks.
+ * Idempotently creates all Nexora Delta tables in Databricks. Schema management
+ * is a platform operation — restricted to SystemAdmin (or the demo deployment).
  * In local mode, tables are created automatically by the LocalAdapter — this
  * endpoint returns a 200 with a "local mode" notice instead of running DDL.
- *
- * Run this once when first connecting to a new Databricks workspace.
  */
-export async function GET() {
+async function handleInit(_request: NextRequest, ctx: TenantContext) {
+  if (!ctx.isDemo) assertPermission(ctx, "platform:manage_organizations");
+
   const mode = getConnectionMode();
 
   if (mode === "local") {
@@ -69,3 +75,5 @@ export async function GET() {
     { status: allOk ? 200 : 207 }
   );
 }
+
+export const GET = withTenant(handleInit, { requireActiveTenant: false, action: "db.init" });
