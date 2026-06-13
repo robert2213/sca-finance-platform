@@ -140,6 +140,53 @@ COMMENT 'Audit log of all data quality actions during ingestion'
 TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true')
 `;
 
+// ─── Multi-tenant control plane (Commercial SaaS Foundation) ───────────────────
+// Organizations are the security boundary; tenant_id equals the org id and is
+// the value written to every client_id column on the finance tables.
+
+export const DDL_ORGANIZATION = `
+CREATE TABLE IF NOT EXISTS organization (
+  id          STRING  NOT NULL  COMMENT 'Stable org id (Clerk organization id in Clerk mode)',
+  name        STRING  NOT NULL,
+  tenant_id   STRING  NOT NULL  COMMENT 'Data-isolation key — equals id; written to client_id columns',
+  status      STRING  NOT NULL  COMMENT 'onboarding | active | suspended | offboarded',
+  created_at  STRING  NOT NULL,
+  updated_at  STRING  NOT NULL,
+  settings    STRING            COMMENT 'JSON: activeModules, enabledAgents, branding, fiscal overrides'
+)
+USING DELTA
+COMMENT 'Tenant control plane — one row per organization'
+`;
+
+export const DDL_APP_USER = `
+CREATE TABLE IF NOT EXISTS app_user (
+  user_id     STRING  NOT NULL  COMMENT 'Clerk user id',
+  org_id      STRING  NOT NULL  COMMENT 'FK -> organization.id',
+  email       STRING  NOT NULL,
+  role        STRING  NOT NULL  COMMENT 'SystemAdmin|OrganizationAdmin|CFO|FPA|Controller|Leader|ReadOnly',
+  status      STRING  NOT NULL  COMMENT 'invited | active | disabled',
+  created_at  STRING  NOT NULL,
+  updated_at  STRING  NOT NULL
+)
+USING DELTA
+COMMENT 'Mirror of org membership + authoritative application role'
+`;
+
+export const DDL_AUDIT_LOG = `
+CREATE TABLE IF NOT EXISTS audit_log (
+  event_id       STRING  NOT NULL,
+  ts             STRING  NOT NULL,
+  org_id         STRING            COMMENT 'Tenant scope (null for platform-level events)',
+  actor_user_id  STRING  NOT NULL,
+  action         STRING  NOT NULL,
+  target         STRING,
+  outcome        STRING  NOT NULL  COMMENT 'success | failure | allow | deny',
+  detail         STRING            COMMENT 'JSON context'
+)
+USING DELTA
+COMMENT 'Append-only security/access audit trail'
+`;
+
 export const ALL_DDL = [
   { name: "dim_cost_center",   sql: DDL_DIM_COST_CENTER },
   { name: "dim_period",        sql: DDL_DIM_PERIOD },
@@ -148,4 +195,8 @@ export const ALL_DDL = [
   { name: "dim_headcount",     sql: DDL_DIM_HEADCOUNT },
   { name: "fact_transactions", sql: DDL_FACT_TRANSACTIONS },
   { name: "data_quality_log",  sql: DDL_DATA_QUALITY_LOG },
+  // Control plane
+  { name: "organization",      sql: DDL_ORGANIZATION },
+  { name: "app_user",          sql: DDL_APP_USER },
+  { name: "audit_log",         sql: DDL_AUDIT_LOG },
 ];

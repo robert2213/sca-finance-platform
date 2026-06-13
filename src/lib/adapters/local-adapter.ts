@@ -62,6 +62,10 @@ async function getDb(): Promise<Database> {
   return _db;
 }
 
+// Default tenant for seeded/demo data — mirrors DEFAULT_CLIENT_ID. Kept as a
+// literal here to avoid importing the config layer into the adapter.
+const LOCAL_DEFAULT_CLIENT_ID = "demo-client";
+
 function initSchema(db: Database) {
   db.run(`
     CREATE TABLE IF NOT EXISTS fact_transactions (
@@ -78,7 +82,8 @@ function initSchema(db: Database) {
       amount_budget     REAL NOT NULL DEFAULT 0,
       amount_forecast   REAL NOT NULL DEFAULT 0,
       transaction_type  TEXT NOT NULL,
-      source_system     TEXT NOT NULL DEFAULT 'static'
+      source_system     TEXT NOT NULL DEFAULT 'static',
+      client_id         TEXT NOT NULL DEFAULT 'demo-client'
     )
   `);
 
@@ -95,7 +100,8 @@ function initSchema(db: Database) {
       business_unit       TEXT,
       auto_renew          INTEGER NOT NULL DEFAULT 0,
       risk_level          TEXT NOT NULL DEFAULT 'Low',
-      status              TEXT NOT NULL DEFAULT 'Active'
+      status              TEXT NOT NULL DEFAULT 'Active',
+      client_id           TEXT NOT NULL DEFAULT 'demo-client'
     )
   `);
 
@@ -105,7 +111,8 @@ function initSchema(db: Database) {
       cost_center_name  TEXT NOT NULL,
       department        TEXT NOT NULL,
       owner             TEXT,
-      budget_owner      TEXT
+      budget_owner      TEXT,
+      client_id         TEXT NOT NULL DEFAULT 'demo-client'
     )
   `);
 
@@ -134,7 +141,8 @@ function initSchema(db: Database) {
       budget            REAL NOT NULL DEFAULT 0,
       start_date        TEXT,
       end_date          TEXT,
-      status            TEXT NOT NULL DEFAULT 'Active'
+      status            TEXT NOT NULL DEFAULT 'Active',
+      client_id         TEXT NOT NULL DEFAULT 'demo-client'
     )
   `);
 
@@ -149,7 +157,8 @@ function initSchema(db: Database) {
       open_date       TEXT,
       fill_date       TEXT,
       annual_salary   REAL NOT NULL DEFAULT 0,
-      is_backfill     INTEGER NOT NULL DEFAULT 0
+      is_backfill     INTEGER NOT NULL DEFAULT 0,
+      client_id       TEXT NOT NULL DEFAULT 'demo-client'
     )
   `);
 
@@ -164,6 +173,81 @@ function initSchema(db: Database) {
       row_count      INTEGER NOT NULL DEFAULT 0
     )
   `);
+
+  // ── Multi-tenant control plane ───────────────────────────────────────────
+  db.run(`
+    CREATE TABLE IF NOT EXISTS organization (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      tenant_id   TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'onboarding',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL,
+      settings    TEXT
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_user (
+      user_id     TEXT NOT NULL,
+      org_id      TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      role        TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'invited',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL,
+      PRIMARY KEY (user_id, org_id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      event_id       TEXT PRIMARY KEY,
+      ts             TEXT NOT NULL,
+      org_id         TEXT,
+      actor_user_id  TEXT NOT NULL,
+      action         TEXT NOT NULL,
+      target         TEXT,
+      outcome        TEXT NOT NULL,
+      detail         TEXT
+    )
+  `);
+
+  migrateSchema(db);
+  seedControlPlane(db);
+}
+
+/**
+ * Idempotent migrations for pre-existing local databases created before the
+ * multi-tenant columns existed. ADD COLUMN errors when the column is already
+ * present — swallowed per-statement so this is safe to run on every load.
+ */
+function migrateSchema(db: Database) {
+  const addClientId = [
+    "fact_transactions", "dim_vendor", "dim_cost_center",
+    "dim_contractor", "dim_headcount",
+  ];
+  for (const table of addClientId) {
+    try {
+      db.run(`ALTER TABLE ${table} ADD COLUMN client_id TEXT NOT NULL DEFAULT 'demo-client'`);
+    } catch {
+      // Column already exists — expected on up-to-date databases.
+    }
+  }
+}
+
+/** Seed the demo organization so the control plane is non-empty in demo mode. */
+function seedControlPlane(db: Database) {
+  try {
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT OR IGNORE INTO organization (id, name, tenant_id, status, created_at, updated_at, settings)
+       VALUES (?, ?, ?, 'active', ?, ?, ?)`,
+      [LOCAL_DEFAULT_CLIENT_ID, "Demo Client", LOCAL_DEFAULT_CLIENT_ID, now, now, "{}"]
+    );
+  } catch {
+    // Non-fatal — best-effort seed.
+  }
 }
 
 async function seedFromStaticData(db: Database) {
