@@ -12,7 +12,7 @@ import {
   getTotalCloudSpendByMonth, getCloudByProvider,
 } from "@/data/cloudSpend";
 import { getYTDSummary, getHCSummary, getContractors } from "@/lib/queries";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -32,7 +32,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 export default async function CIOPage() {
   const cloudByMonth   = getTotalCloudSpendByMonth();
   const cloudProviders = getCloudByProvider();
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [ytd, hc, allContractors] = await Promise.all([
     getYTDSummary(clientId),
     getHCSummary(clientId),

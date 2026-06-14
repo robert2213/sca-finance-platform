@@ -32,17 +32,17 @@ export class InMemoryFinancialStage implements FinancialStage {
     return { staged, rejected, backend: "in-memory" };
   }
 
-  async getByUpload(uploadId: string): Promise<CanonicalFinancialRecord[]> {
-    return this.records.filter((r) => r.upload_id === uploadId);
+  async getByUpload(uploadId: string, clientId: string): Promise<CanonicalFinancialRecord[]> {
+    return this.records.filter((r) => r.upload_id === uploadId && r.client_id === clientId);
   }
 
-  async count(): Promise<number> {
-    return this.records.length;
+  async count(clientId: string): Promise<number> {
+    return this.records.filter((r) => r.client_id === clientId).length;
   }
 
-  async listUploadSummaries(): Promise<UploadStageSummary[]> {
+  async listUploadSummaries(clientId: string): Promise<UploadStageSummary[]> {
     const byUpload = new Map<string, UploadStageSummary>();
-    this.records.forEach((r) => {
+    this.records.filter((r) => r.client_id === clientId).forEach((r) => {
       const existing = byUpload.get(r.upload_id);
       if (existing) {
         existing.count += 1;

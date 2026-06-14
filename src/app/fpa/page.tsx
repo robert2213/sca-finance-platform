@@ -6,7 +6,7 @@ import VarianceTable from "@/components/dashboard/VarianceTable";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import KPICard from "@/components/dashboard/KPICard";
 import { getMonthlyTotals, getByBusinessUnit, getByCategory, getActualsByPeriod, getYTDSummary, YTD_CUTOFF } from "@/lib/queries";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -24,7 +24,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function FPAPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [monthly, byBU, byCat, mayActuals, ytd] = await Promise.all([
     getMonthlyTotals(2026, clientId),
     getByBusinessUnit(YTD_CUTOFF, clientId),

@@ -18,7 +18,6 @@ import type {
 } from "./staging.types";
 import { generateUploadId } from "./upload-history.service";
 import { dbQuery } from "@/lib/databricks";
-import { DEFAULT_CLIENT_ID } from "@/config/client.resolver";
 
 // Qualified table name. Mirrors the adapter's catalog/schema env defaults so the
 // reference is independent of the session's initial catalog/schema.
@@ -48,6 +47,7 @@ function toIso(v: unknown): string {
 function rowToStagedUpload(r: Record<string, unknown>): StagedUpload {
   return {
     uploadId: String(r.upload_id ?? ""),
+    clientId: String(r.client_id ?? ""),
     fileName: String(r.file_name ?? ""),
     fileType: String(r.file_type ?? "csv") as StagedUpload["fileType"],
     dataType: String(r.data_type ?? "") as StagedUpload["dataType"],
@@ -89,7 +89,7 @@ export class DatabricksUploadHistory implements UploadHistoryStore {
             created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, current_timestamp(), ?, ?, ?, ?, ?, ?, ?, current_timestamp(), current_timestamp())`,
         [
-          record.uploadId, DEFAULT_CLIENT_ID, record.fileName, record.fileType,
+          record.uploadId, record.clientId, record.fileName, record.fileType,
           record.dataType, record.period, record.rowCount, record.columnCount,
           record.validationStatus, record.errorCount, record.warningCount,
           record.readyForStaging, record.status,
@@ -102,30 +102,31 @@ export class DatabricksUploadHistory implements UploadHistoryStore {
     }
   }
 
-  async getUpload(uploadId: string): Promise<StagedUpload | undefined> {
+  async getUpload(uploadId: string, clientId: string): Promise<StagedUpload | undefined> {
     try {
+      // Tenant-scoped: an upload id from another tenant returns nothing.
       const res = await dbQuery<Record<string, unknown>>(
-        `SELECT * FROM ${TABLE} WHERE upload_id = ? LIMIT 1`,
-        [uploadId]
+        `SELECT * FROM ${TABLE} WHERE upload_id = ? AND client_id = ? LIMIT 1`,
+        [uploadId, clientId]
       );
       const row = res.rows[0];
       return row ? rowToStagedUpload(row) : undefined;
     } catch (err) {
       this.warn("getUpload", err);
-      return this.fallback.getUpload(uploadId);
+      return this.fallback.getUpload(uploadId, clientId);
     }
   }
 
-  async listUploads(): Promise<StagedUpload[]> {
+  async listUploads(clientId: string): Promise<StagedUpload[]> {
     try {
       const res = await dbQuery<Record<string, unknown>>(
         `SELECT * FROM ${TABLE} WHERE client_id = ? ORDER BY uploaded_at DESC, created_at DESC`,
-        [DEFAULT_CLIENT_ID]
+        [clientId]
       );
       return res.rows.map(rowToStagedUpload);
     } catch (err) {
       this.warn("listUploads", err);
-      return this.fallback.listUploads();
+      return this.fallback.listUploads(clientId);
     }
   }
 
@@ -135,7 +136,13 @@ export class DatabricksUploadHistory implements UploadHistoryStore {
         `UPDATE ${TABLE} SET status = ?, updated_at = current_timestamp() WHERE upload_id = ?`,
         [status, uploadId]
       );
-      return await this.getUpload(uploadId);
+      // Re-fetch by id (status transitions are keyed by upload_id, not tenant).
+      const res = await dbQuery<Record<string, unknown>>(
+        `SELECT * FROM ${TABLE} WHERE upload_id = ? LIMIT 1`,
+        [uploadId]
+      );
+      const row = res.rows[0];
+      return row ? rowToStagedUpload(row) : undefined;
     } catch (err) {
       this.warn("updateStatus", err);
       return this.fallback.updateStatus(uploadId, status);

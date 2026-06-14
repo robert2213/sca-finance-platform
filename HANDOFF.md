@@ -1,6 +1,6 @@
 # Nexora AI Finance — Project Handoff Document
 
-**Last updated:** June 11, 2026 (Sprint 11A.7)  
+**Last updated:** June 11, 2026 (Sprint 12)  
 **Repository:** `nexora-ai-finance` (local) · `robert2213/sca-finance-platform` (GitHub)  
 **Author note:** This document is written for a developer taking over the project cold. Every section reflects the actual codebase as of the most recent session.
 
@@ -6933,6 +6933,54 @@ DELETE FROM nexora.finance.fact_transactions WHERE source_system = 'upload';
 ### Regression risk
 
 **Low / additive.** One tracked file changed (the loader) + two test artifacts. INSERT-only — no MERGE/UPDATE/DELETE/TRUNCATE; demo rows (`source_system != 'upload'`) never touched. Lineage-present behavior is byte-for-byte the 11A.7 path (forward-compatible). Worst case (probe or INSERT fails) → the existing in-memory fallback, identical to before. No dashboards, agents, KPI logic, risk engine, client config, auth, UI, or legacy `/api/ingest` touched.
+
+---
+
+## Sprint 12 — Implementation Framework Foundation (documentation only)
+
+**Date:** 2026-06-11
+**Status:** Complete — **zero software changes; docs-only sprint.**
+
+### Objective
+
+Create the minimum viable, repeatable implementation framework to onboard a client from signed agreement to go-live — **without adding software features**. This was implementation architecture / delivery methodology, not development.
+
+### Scope discipline
+
+No application code, packages, or environment touched. Explicitly **not modified:** dashboards, agents, Databricks adapters, upload pipeline, validation engine, KPI logic, risk engine, authentication. Deliverables are documentation only, built to mirror how Nexora actually works today (upload → Databricks `fact_transactions` → dashboards → agents).
+
+### Files added — `docs/implementation/`
+
+| File | Purpose |
+|---|---|
+| `DISCOVERY-CHECKLIST.md` | Guides the Phase 1 client discovery session — company overview, stakeholders, finance team structure, reporting/budget/forecast/exec-reporting processes, pain points, existing analytics env. Mapped to the fields needed for `src/config/client.config.ts`. |
+| `DATA-MAPPING-TEMPLATE.md` | Standardizes client-field → Nexora-canonical mapping (Client Field / Source System / Business Definition / Canonical Field / Required? / Transformation / Validation Rules). Worked examples: Fiscal Month→`period`, Department→Cost Center, Actual Spend→`amountActual`. Grounded in `finance.types.ts`, the 6 mappers, and the 8 validators. |
+| `IMPLEMENTATION-PLAYBOOK.md` | End-to-end methodology, Phases 1–8 (Discovery, Data Inventory, Mapping, Initial Load, Validation, Dashboard Review, Agent Review, Go-Live), each with Objectives / Inputs / Outputs / Success Criteria. |
+| `IMPLEMENTATION-TIMELINE.md` | Fast-track (2 wk), Standard (4 wk), Enterprise (8 wk) schedules mapping the 8 phases to weeks; phase-to-week reference table; scheduling guidance. |
+| `CLIENT-READINESS-ASSESSMENT.md` | 1–5 scoring across Data Quality, Data Accessibility, Reporting Maturity, Forecast Maturity, Stakeholder Alignment → Low/Medium/High complexity → recommended track. Includes a copy-per-client scorecard and override rules. |
+
+### Architecture alignment (why these docs are accurate, not generic)
+
+- Canonical model + required key fields pulled from `src/lib/models/finance.types.ts` and `src/lib/ingestion/mappers/` (`period`, `cost_center_id`, amounts).
+- Validator behavior (errors block / warnings flag) pulled from the 8 validators in `src/lib/validation/validators/`.
+- Client config fields (`clientId`, `fiscalYearStart`, `reportingPeriods`, `forecastCycles`, `businessUnits`, `costCenters`, `departments`, `chartOfAccounts`, `activeModules`, `agents`) pulled from `docs/CLIENT-CONFIG.md`.
+- Connector reality stated honestly: all direct connectors are **stubs** — launch is CSV/Excel **upload**.
+- Load reality stated honestly: financial rows persist on the existing 15-column `fact_transactions` schema; **migration 004 is optional** (per 11A.7.1); re-upload is **INSERT-only** (no dedup) — load each period once.
+- Forecast caveat carried through: `transaction_type='forecast'` is excluded by the current KPI/dashboard filter `IN ('actual','budget')` — flagged as an enhancement, not a config toggle.
+
+### Validation results
+
+```
+Gate 1  git status:  only docs/implementation/ added — no application file modified
+Gate 2  TypeScript:  0 errors            (npx tsc --noEmit)
+Gate 3  Build:       ✓ next build — 30 routes; dashboards + agents + ingest routes intact
+```
+
+No package changes, no environment changes, zero software regressions.
+
+### Regression risk
+
+**None.** Documentation-only. Committed separately from any code work.
 
 ---
 

@@ -1,0 +1,10 @@
+account,beachhead,industry,revenue_band,employee_count,erp,data_platform,buyer_name,buyer_title,economic_buyer,trigger,trigger_date,channel,warm_path_via,status,last_touch,next_action,next_action_date,icp_score_21,data_readiness_flag,discovery_score_50,notes
+EXAMPLE - Northwind SaaS,1 - B2B SaaS,Software Development,$50-150M,650,NetSuite,Snowflake,Jane Doe,VP FP&A,CFO (new <12mo),new CFO + Series C,2026-04,Referral,intro via angel investor,Not started,,Ask investor for double-opt-in intro,2026-06-16,19,A - clean export expected,,One-line founder rationale here
+EXAMPLE - Cascade Health Group,2 - PE-backed,Hospital & Health Care,$80-300M,1200,Sage Intacct,Databricks,John Roe,Director of Finance,CFO,multi-entity roll-up + sponsor reporting mandate,2026-05,Referral,PE operating partner,Not started,,Map portfolio CFO intro path,2026-06-17,17,C - confirm per-entity export,,Watch: multi-entity data trap
+EXAMPLE - Meridian Agency,3 - Tech-enabled services,Advertising Services,$30-300M,800,QuickBooks Online,none,Sam Lee,Head of FP&A,VP Finance,heavy SOW/contractor spend scrutiny,2026-06,LinkedIn (engagement-first),2nd-degree shared connection,Not started,,Comment on 3 recent posts before DM,2026-06-15,16,B - confirm PSA export (Kantata),,External-labor wedge play
+,,,,,,,,,,,,,,Not started,,,,,,,
+,,,,,,,,,,,,,,Not started,,,,,,,
+,,,,,,,,,,,,,,Not started,,,,,,,
+,,,,,,,,,,,,,,Not started,,,,,,,
+,,,,,,,,,,,,,,Not started,,,,,,,
+,,,,,,,,,,,,,,Not started,,,,,,,

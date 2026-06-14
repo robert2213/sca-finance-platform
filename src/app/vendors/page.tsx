@@ -6,7 +6,7 @@ import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { getVendors } from "@/lib/queries";
 import { generateRiskFlagsAsync } from "@/lib/riskEngine";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatDate, daysUntil, isExpiringSoon } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 import clsx from "clsx";
@@ -24,7 +24,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function VendorsPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [vendors, allRisks] = await Promise.all([
     getVendors(clientId),
     generateRiskFlagsAsync(clientId),

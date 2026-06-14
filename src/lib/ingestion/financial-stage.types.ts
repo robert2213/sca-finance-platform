@@ -66,10 +66,10 @@ export interface UploadStageSummary {
 export interface FinancialStage {
   /** Stage a batch of canonical records; returns accepted/rejected counts. */
   stage(records: CanonicalFinancialRecord[]): Promise<StageOutcome>;
-  /** All staged records for one upload. */
-  getByUpload(uploadId: string): Promise<CanonicalFinancialRecord[]>;
-  /** Total staged record count across all uploads. */
-  count(): Promise<number>;
-  /** Per-upload roll-up, for inspection. */
-  listUploadSummaries(): Promise<UploadStageSummary[]>;
+  /** All staged records for one upload, scoped to the caller's tenant. */
+  getByUpload(uploadId: string, clientId: string): Promise<CanonicalFinancialRecord[]>;
+  /** Total staged record count for one tenant. */
+  count(clientId: string): Promise<number>;
+  /** Per-upload roll-up for one tenant, for inspection. */
+  listUploadSummaries(clientId: string): Promise<UploadStageSummary[]>;
 }

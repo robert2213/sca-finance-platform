@@ -17,7 +17,7 @@ import {
   YTD_CUTOFF,
 } from "@/lib/queries";
 import { getKPIBundle } from "@/lib/services/kpi.service";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 
 // ─── Section header with optional right-side agent CTA ────────────────────────
@@ -59,7 +59,7 @@ function SectionHeader({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [monthly, byBU, overConts, allOpenReqs, kpis, risks, bundle] = await Promise.all([
     getMonthlyTotals(2026, clientId),
     getByBusinessUnit(YTD_CUTOFF, clientId),

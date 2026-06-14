@@ -15,6 +15,8 @@ import { toCanonicalRecords } from "@/lib/ingestion/financial-record.transformer
 import type { UploadStatus } from "@/lib/ingestion/staging.types";
 import { detectDataType, type DetectionConfidence } from "@/lib/ingestion/data-type-detector";
 import defaultConfig from "@/config/client.config";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 
 /**
  * POST /api/ingest/upload  — Sprint 11A.1 thin slice + 11A.2 history persistence
@@ -85,7 +87,7 @@ interface UploadSummary {
   stageWarnings: string[]; // non-fatal load warnings (e.g. Databricks failed → in-memory fallback)
 }
 
-export async function POST(request: NextRequest) {
+async function handleUpload(request: NextRequest, ctx: TenantContext) {
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -132,7 +134,8 @@ export async function POST(request: NextRequest) {
     );
   }
   const period = periodInput || defaultConfig.reportingPeriods[0];
-  const clientId = defaultConfig.clientId;
+  // Tenant from the authenticated session — uploads are written under the caller's tenant.
+  const clientId = ctx.clientId;
 
   try {
     // ── Read raw content + extract row data and the RAW header row ──
@@ -193,6 +196,7 @@ export async function POST(request: NextRequest) {
     // structural and required-columns rejection branches below).
     const fileFailureResponse = async (): Promise<NextResponse> => {
       const failed = await uploadHistory.addUpload({
+        clientId,
         fileName: file.name,
         fileType,
         dataType,
@@ -282,6 +286,7 @@ export async function POST(request: NextRequest) {
     // ── 4. HISTORY (Sprint 11A.2/11A.4) ──
     // addUpload() registers as "uploaded"; the final status is set after staging.
     const record = await uploadHistory.addUpload({
+      clientId,
       fileName: file.name,
       fileType,
       dataType,
@@ -357,6 +362,9 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Only members with data:upload may upload, and rows are staged under their tenant.
+export const POST = withTenant(handleUpload, { permission: "data:upload", action: "ingest.upload.staged" });
 
 export async function GET() {
   return NextResponse.json({

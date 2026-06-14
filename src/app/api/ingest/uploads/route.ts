@@ -1,18 +1,22 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { uploadHistory } from "@/lib/ingestion/upload-history.resolver";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 
-// Reads the live store at request time — must not be statically cached at
-// build, or it would serve a frozen list in production.
+// Reads the live store at request time — must not be statically cached.
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/ingest/uploads  — Sprint 11A.2 (durable store in 11A.4)
- *
- * Returns the active upload history (Databricks-backed when configured, else
- * in-memory), most recent first.
- *   { count, uploads }
+ * GET /api/ingest/uploads
+ * Returns the upload history FOR THE CALLER'S TENANT only (most recent first).
+ * Guarded by data:view_validation; tenant-scoped via ctx.clientId.
  */
-export async function GET() {
-  const uploads = await uploadHistory.listUploads(); // most recent first
+async function handleListUploads(_request: NextRequest, ctx: TenantContext) {
+  const uploads = await uploadHistory.listUploads(ctx.clientId);
   return NextResponse.json({ count: uploads.length, uploads });
 }
+
+export const GET = withTenant(handleListUploads, {
+  permission: "data:view_validation",
+  action: "ingest.uploads.list",
+});

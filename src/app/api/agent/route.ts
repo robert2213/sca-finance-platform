@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { dispatchAgent } from "@/agents/agentEngine";
-import { buildSnapshotFromDB, getFinanceSnapshot } from "@/agents/dataContext";
+import { resolveSnapshot } from "@/agents/dataContext";
 import type { FinanceSnapshot } from "@/agents/dataContext";
-import { resolveClientId } from "@/config/client.resolver";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 import { buildSystemPrompt, classifyIntent, extractTemporalIntent } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 import {
@@ -265,7 +266,7 @@ async function callClaude(
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handleAgentPost(request: NextRequest, ctx: TenantContext) {
   const startMs = Date.now();
 
   try {
@@ -292,30 +293,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Build DB snapshot once — shared by guard, Claude, and mock fallback ──
-    // Falls back to static getFinanceSnapshot() if Databricks env is absent or throws.
-    let snapshot: FinanceSnapshot;
-    const clientId = resolveClientId();
-    const hasDb = Boolean(process.env.DATABRICKS_HOST);
-    if (hasDb) {
-      try {
-        snapshot = await buildSnapshotFromDB(clientId);
-        pipelineLog("DB_SNAPSHOT_BUILT", {
-          agentId,
-          clientId,
-          ytdActual: snapshot.ytdActual,
-        });
-      } catch (dbErr: unknown) {
-        pipelineLog("DB_SNAPSHOT_FAILED", {
-          agentId,
-          error: (dbErr as Error).message,
-          fallback: "getFinanceSnapshot()",
-        });
-        snapshot = getFinanceSnapshot();
-      }
-    } else {
-      snapshot = getFinanceSnapshot();
-    }
+    // ── Build the snapshot once — shared by guard, Claude, and mock fallback ──
+    // resolveSnapshot is tenant-safe: live DB scoped by clientId, demo data only
+    // for the demo tenant, empty snapshot for any other tenant without live data.
+    const clientId = ctx.clientId;
+    const snapshot: FinanceSnapshot = await resolveSnapshot(clientId);
+    pipelineLog("SNAPSHOT_RESOLVED", {
+      agentId,
+      clientId,
+      ytdActual: snapshot.ytdActual,
+    });
 
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -380,6 +367,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+// Tenant + permission guard: only authenticated members with `agents:run` may
+// invoke an agent, and the snapshot is scoped to their session's tenant.
+export const POST = withTenant(handleAgentPost, { permission: "agents:run", action: "agent.run" });
 
 export async function GET() {
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);

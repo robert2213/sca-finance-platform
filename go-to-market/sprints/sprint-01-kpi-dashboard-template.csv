@@ -1,0 +1,30 @@
+metric,type,week_1,week_2,week_3,week_4,target_30day,notes
+Accounts loaded (cumulative),Activity,,,,,100,Build to 100 by end of Week 1
+Warm-intro asks,Activity,,,,,25-40,Front-loaded weeks 1-2; double-opt-in
+LinkedIn connection requests,Activity,,,,,200-250,~15-20/day; trigger-personalized
+LinkedIn substantive comments,Activity,,,,,40-80,Engagement-first; no pitching
+LinkedIn DMs (accepted/warmed),Activity,,,,,100-200,Seq A M2/M3 + Seq B
+Cold emails (weeks 3-4 only),Activity,,,,,50-100,0 in wks 1-2 (domain warm-up)
+Community contributions,Activity,,,,,8-12,Answer real finance questions
+Owned content posts,Activity,,,,,8,2/week; reporting->decision-intelligence POV
+Positive replies (all channels),Leading,,,,,15-30,The early truth-teller
+Meetings / intro calls held,Leading,,,,,8-15,Warm converts 30-50%
+Qualified discoveries (scorecard >=32),STAR Leading,,,,,3-6,*** THE metric that matters ***
+Candidates scored on bench,Leading,,,,,>=5,Per 07-qualification-framework
+MOUs in motion,Bridge,,,,,1-2,
+Design partners signed,Lagging,,,,,0-1,Base case 0; most land days 31-60
+Revenue,Lagging,,,,,$0,Intentional - learning over revenue
+,,,,,,,
+CHANNEL HEALTH,,,,,,,
+Referral - positive reply %,Channel,,,,,30-50%,Below band after ~30 touches = fix targeting
+Former colleague - positive reply %,Channel,,,,,30-60%,
+Warm LinkedIn - positive reply %,Channel,,,,,15-30%,
+Executive (founder->CFO) - reply %,Channel,,,,,5-12%,
+Cold LinkedIn - positive reply %,Channel,,,,,1-5%,
+Cold email - positive reply %,Channel,,,,,1-5%,
+,,,,,,,
+HYPOTHESES (evidence by Day 30),,,,,,,
+H1 nameable acute pain,Hypothesis,,,,,CONFIRM/REFUTE,Positive-reply hits band bottom
+H2 trigger beats generic (>=2x),Hypothesis,,,,,CONFIRM/REFUTE,A/B trigger vs generic
+H3 analyst-not-report framing wins,Hypothesis,,,,,CONFIRM/REFUTE,Reply sentiment + call energy
+H4 reachable network >40 warm accounts,Hypothesis,,,,,CONFIRM/REFUTE,Warm-path accounts surfaced

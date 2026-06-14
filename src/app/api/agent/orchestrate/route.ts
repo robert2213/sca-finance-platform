@@ -23,7 +23,8 @@ import {
   orchestrate, ORCHESTRATION_SETS, AGENT_NAMES,
 } from "@/agents/orchestrator";
 import { getFinanceSnapshot, resolveSnapshot } from "@/agents/dataContext";
-import { resolveClientId } from "@/config/client.resolver";
+import { withTenant } from "@/lib/tenant/with-tenant";
+import type { TenantContext } from "@/lib/tenant/tenant-context";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt.builder";
 import { parseAgentResponse } from "@/lib/ai/response.parser";
 
@@ -66,7 +67,7 @@ async function callClaudeAgent(
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
 
-export async function POST(request: NextRequest) {
+async function handleOrchestrate(request: NextRequest, ctx: TenantContext) {
   const startMs = Date.now();
 
   try {
@@ -82,8 +83,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "question is required" }, { status: 400 });
     }
 
-    // Resolve the active tenant once; thread it through both the live and mock paths.
-    const clientId = resolveClientId();
+    // Tenant comes from the authenticated session; thread it through both paths.
+    const clientId = ctx.clientId;
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
     if (apiKey) {
@@ -145,6 +146,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export const POST = withTenant(handleOrchestrate, { permission: "agents:run", action: "agent.orchestrate" });
 
 export async function GET() {
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
+    "@clerk/nextjs": "^6.39.5",
     "@databricks/sql": "^1.15.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.395.0",

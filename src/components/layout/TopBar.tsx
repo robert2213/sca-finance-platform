@@ -1,5 +1,7 @@
 "use client";
 
+import AuthControls from "./AuthControls";
+
 interface TopBarProps {
   title: string;
   subtitle?: string;
@@ -56,6 +58,9 @@ export default function TopBar({ title, subtitle, badge, onMenuClick }: TopBarPr
           <div className="w-1.5 h-1.5 rounded-full bg-nexora-500 animate-pulse" />
           <span className="text-[11px] font-semibold text-nexora-700">6 Agents</span>
         </div>
+
+        {/* Tenant switcher + user menu (Clerk-enabled only) */}
+        <AuthControls />
       </div>
     </header>
   );

@@ -8,7 +8,7 @@ import KPICard from "@/components/dashboard/KPICard";
 import StatsBanner from "@/components/dashboard/StatsBanner";
 import { generateRiskFlagsAsync, generateRecommendedActions } from "@/lib/riskEngine";
 import { getYTDSummary } from "@/lib/queries";
-import { resolveClientId } from "@/config/client.resolver";
+import { getTenantClientId } from "@/lib/tenant/tenant-context";
 import { formatCurrency, formatPercent } from "@/lib/formatters";
 import type { KPI } from "@/types/finance";
 
@@ -25,7 +25,7 @@ function SectionHeader({ label, sub }: { label: string; sub?: string }) {
 }
 
 export default async function CFOPage() {
-  const clientId = resolveClientId();
+  const clientId = await getTenantClientId();
   const [risks, ytd] = await Promise.all([
     generateRiskFlagsAsync(clientId),
     getYTDSummary(clientId),
